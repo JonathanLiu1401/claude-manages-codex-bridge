@@ -33,6 +33,7 @@ CLAUDE_MAX_BUDGET_USD = "0.50"
 CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
 CLAUDE_PROMPT_COMPOSER_EFFORT = "low"
 CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.10"
+CODEX_STEER_IDLE_SECONDS = 20
 
 TOOL_ACCESS_KEYWORDS = (
     "ssh",
@@ -302,6 +303,77 @@ def _make_run(cwd: str | None, prefix: str, title: str, prompt: str, metadata: d
     return run_dir
 
 
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        pass
+    return default
+
+
+def _infer_cwd_from_run_dir(run_dir: Path, metadata: dict[str, Any]) -> str:
+    cwd = metadata.get("cwd")
+    if cwd:
+        return str(Path(cwd).expanduser().resolve())
+    # Normal layout: <cwd>/.claude-codex/runs/<run-id>
+    try:
+        if run_dir.parent.name == "runs" and run_dir.parent.parent.name == ".claude-codex":
+            return str(run_dir.parent.parent.parent.resolve())
+    except Exception:
+        pass
+    return str(HOME)
+
+
+def _status_name(status: Any) -> str:
+    if isinstance(status, dict):
+        return str(status.get("status", "unknown"))
+    return str(status or "unknown")
+
+
+def _write_steer_file(
+    run_dir: Path,
+    instruction: str,
+    session_context: str = "",
+    title: str = "Claude steering",
+    permission_contract: str = "",
+) -> Path:
+    steer_queue = run_dir / "steer_queue"
+    steer_queue.mkdir(parents=True, exist_ok=True)
+    steer_id = f"{_now()}-steer-{uuid.uuid4().hex[:8]}.md"
+    context = session_context.strip() or "No extra session_context supplied with this steering note."
+    permission_section = (
+        f"## Updated Permission Intent\n\n{permission_contract.strip()}\n\n"
+        if permission_contract.strip()
+        else ""
+    )
+    prompt = textwrap.dedent(f"""
+    # Claude Captain Steering
+
+    You are continuing the same Codex thread for a visible Claude-managed run.
+    Do not restart from scratch. Apply this steering instruction to the current task, preserve prior context, and keep Claude's role as captain.
+
+    Title: {title}
+    Original run: {run_dir}
+
+    ## New Steering Instruction
+
+    {instruction.strip()}
+
+    {permission_section}\
+    ## Additional Session Context
+
+    {context}
+
+    ## Required Response
+
+    Address Claude as captain. Return only the delta since the prior turn: what changed, current state, files touched, verification, risks, and any decisions needed from Claude.
+    """).strip()
+    steer_path = steer_queue / steer_id
+    steer_path.write_text(prompt, encoding="utf-8")
+    return steer_path
+
+
 def _launch(script_path: Path) -> int:
     flags = 0x00000010 if os.name == "nt" else 0
     proc = subprocess.Popen(
@@ -326,6 +398,7 @@ def _codex_runner(
     composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
     composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
 ) -> str:
     return f"""
 $ErrorActionPreference = 'Continue'
@@ -339,6 +412,8 @@ $RawLog = Join-Path $RunDir 'events.jsonl'
 $DisplayLog = Join-Path $RunDir 'display.log'
 $StatusPath = Join-Path $RunDir 'status.json'
 $ThreadPath = Join-Path $RunDir 'thread_id.txt'
+$SteerQueue = Join-Path $RunDir 'steer_queue'
+$SteerDone = Join-Path $RunDir 'steer_done'
 $Codex = {_ps(CODEX)}
 $Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
@@ -352,6 +427,7 @@ $ComposeWithHaiku = {"$true" if compose_with_haiku else "$false"}
 $ComposerModel = {_ps(composer_model)}
 $ComposerEffort = {_ps(composer_effort)}
 $ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
+$SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
 # Force UTF-8 so Codex's UTF-8 stdout/stdin is decoded correctly (avoids mojibake like the
 # right-single-quote turning into "ΓÇÖ" when PowerShell falls back to the OEM code page).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -379,6 +455,19 @@ function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $line = "[$stamp] $Text"
   Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
   Write-Host $line -ForegroundColor $Color
+}}
+
+function Get-CurrentThreadId {{
+  if (Test-Path -LiteralPath $ThreadPath) {{
+    return (Get-Content -LiteralPath $ThreadPath -Raw).Trim()
+  }}
+  return $ResumeSessionId
+}}
+
+function Get-NextSteerFile {{
+  if (-not (Test-Path -LiteralPath $SteerQueue)) {{ return $null }}
+  $next = Get-ChildItem -LiteralPath $SteerQueue -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
+  return $next
 }}
 
 function Show-JsonEvent($obj) {{
@@ -424,8 +513,68 @@ function Show-JsonEvent($obj) {{
   }}
 }}
 
+function Invoke-CodexPrompt {{
+  param(
+    [string]$CodexPromptPath,
+    [string]$ThreadId,
+    [string]$TurnLabel
+  )
+  $turnThread = ''
+  if ($ThreadId) {{ $turnThread = $ThreadId.Trim() }}
+  Set-Status "running:$TurnLabel"
+  if ($turnThread -and $turnThread -ne '') {{
+    Log-Line "Starting Codex resume turn: $TurnLabel | thread: $turnThread" 'Magenta'
+  }} else {{
+    Log-Line "Starting Codex new turn: $TurnLabel" 'Magenta'
+  }}
+  Log-Line 'Raw JSONL is saved to events.jsonl.' 'Magenta'
+
+  $argsList = @('exec')
+  $UseSandboxBypass = $Sandbox -eq 'danger-full-access'
+  if ($turnThread -and $turnThread -ne '') {{
+    $argsList += @('resume','--json','-c',"approval_policy=`"$ApprovalPolicy`"")
+    if ($UseSandboxBypass) {{ $argsList += '--dangerously-bypass-approvals-and-sandbox' }}
+  }} else {{
+    $argsList += @('--json','-C',$Cwd,'-c',"approval_policy=`"$ApprovalPolicy`"")
+    if ($UseSandboxBypass) {{
+      $argsList += '--dangerously-bypass-approvals-and-sandbox'
+    }} else {{
+      $argsList += @('--sandbox',$Sandbox)
+    }}
+  }}
+  if ($Model -and $Model -ne '') {{ $argsList += @('-m',$Model) }}
+  if ($ReasoningEffort -and $ReasoningEffort -ne '') {{ $argsList += @('-c', "model_reasoning_effort=`"$ReasoningEffort`"") }}
+  if ($ServiceTier -and $ServiceTier -ne '') {{ $argsList += @('-c', "service_tier=`"$ServiceTier`"") }}
+  if ($turnThread -and $turnThread -ne '') {{ $argsList += $turnThread }}
+  $argsList += '-'
+
+  $prompt = Get-Content -LiteralPath $CodexPromptPath -Raw
+  Push-Location $Cwd
+  try {{
+    $prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
+      $line = [string]$_
+      Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
+      try {{
+        $obj = $line | ConvertFrom-Json -ErrorAction Stop
+        Show-JsonEvent $obj
+      }} catch {{
+        Log-Line $line 'Gray'
+      }}
+    }}
+  }} finally {{
+    Pop-Location
+  }}
+
+  $code = $LASTEXITCODE
+  Log-Line "Codex turn '$TurnLabel' exited with code $code" $(if ($code -eq 0) {{ 'Green' }} else {{ 'Red' }})
+  Stop-RunDescendants -RootPid $PID
+  return $code
+}}
+
 {_PS_CLEANUP_FN}
 Clear-Host
+New-Item -ItemType Directory -Force -Path $SteerQueue | Out-Null
+New-Item -ItemType Directory -Force -Path $SteerDone | Out-Null
 Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
@@ -501,47 +650,38 @@ if ($ComposeWithHaiku) {{
   Log-Line 'Prompt follows:' 'Magenta'
   Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
 }}
-Log-Line 'Starting Codex. Raw JSONL is saved to events.jsonl.' 'Magenta'
+$exitCode = Invoke-CodexPrompt -CodexPromptPath $CodexPromptPath -ThreadId $ResumeSessionId -TurnLabel 'initial'
 
-$argsList = @('exec')
-$UseSandboxBypass = $Sandbox -eq 'danger-full-access'
-if ($ResumeSessionId -and $ResumeSessionId -ne '') {{
-  $argsList += @('resume','--json','-c',"approval_policy=`"$ApprovalPolicy`"")
-  if ($UseSandboxBypass) {{ $argsList += '--dangerously-bypass-approvals-and-sandbox' }}
-}} else {{
-  $argsList += @('--json','-C',$Cwd,'-c',"approval_policy=`"$ApprovalPolicy`"")
-  if ($UseSandboxBypass) {{
-    $argsList += '--dangerously-bypass-approvals-and-sandbox'
-  }} else {{
-    $argsList += @('--sandbox',$Sandbox)
+while ($exitCode -eq 0) {{
+  $waited = 0
+  $steerFile = Get-NextSteerFile
+  while ($null -eq $steerFile -and $waited -lt $SteerIdleSeconds) {{
+    Set-Status 'waiting_for_steer'
+    if ($waited -eq 0) {{
+      Log-Line "Waiting up to $SteerIdleSeconds second(s) for queued Claude steering before closing." 'DarkCyan'
+    }}
+    Start-Sleep -Seconds 1
+    $waited++
+    $steerFile = Get-NextSteerFile
   }}
-}}
-if ($Model -and $Model -ne '') {{ $argsList += @('-m',$Model) }}
-if ($ReasoningEffort -and $ReasoningEffort -ne '') {{ $argsList += @('-c', "model_reasoning_effort=`"$ReasoningEffort`"") }}
-if ($ServiceTier -and $ServiceTier -ne '') {{ $argsList += @('-c', "service_tier=`"$ServiceTier`"") }}
-if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ $argsList += $ResumeSessionId }}
-$argsList += '-'
+  if ($null -eq $steerFile) {{ break }}
 
-$prompt = Get-Content -LiteralPath $CodexPromptPath -Raw
-Push-Location $Cwd
-try {{
-  $prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
-  $line = [string]$_
-  Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
-  try {{
-    $obj = $line | ConvertFrom-Json -ErrorAction Stop
-    Show-JsonEvent $obj
-  }} catch {{
-    Log-Line $line 'Gray'
+  $currentThread = Get-CurrentThreadId
+  if (-not $currentThread -or $currentThread -eq '') {{
+    Set-Status 'failed:steer-no-thread'
+    Log-Line "Cannot apply steering because no Codex thread id has been recorded yet: $($steerFile.FullName)" 'Red'
+    $exitCode = 1
+    break
   }}
-  }}
-}} finally {{
-  Pop-Location
+
+  Log-Line "Applying queued Claude steering: $($steerFile.Name)" 'Magenta'
+  Get-Content -LiteralPath $steerFile.FullName -Raw | Write-Raw
+  $exitCode = Invoke-CodexPrompt -CodexPromptPath $steerFile.FullName -ThreadId $currentThread -TurnLabel "steer:$($steerFile.BaseName)"
+  $donePath = Join-Path $SteerDone $steerFile.Name
+  try {{ Move-Item -LiteralPath $steerFile.FullName -Destination $donePath -Force }} catch {{}}
 }}
 
-$exitCode = $LASTEXITCODE
 if ($exitCode -eq 0) {{ Set-Status 'completed' }} else {{ Set-Status "failed:$exitCode" }}
-Log-Line "Codex exited with code $exitCode" $(if ($exitCode -eq 0) {{ 'Green' }} else {{ 'Red' }})
 
 try {{
   Log-Line 'Git status:' 'Cyan'
@@ -693,6 +833,7 @@ def start_visible_codex_worker(
     composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
     composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
 ) -> dict[str, Any]:
     """Launch a visible Codex exec worker in a separate PowerShell window and save logs."""
     effective_model = CODEX_MODEL
@@ -710,6 +851,7 @@ def start_visible_codex_worker(
         effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Codex worker", session_context)
     run_dir = _make_run(cwd, "codex-resume" if resume_session_id else "codex", title, effective_prompt, {
         "agent": "codex",
+        "cwd": str(Path(cwd).resolve()),
         "sandbox": effective_sandbox,
         "requested_sandbox": sandbox,
         "approval_policy": approval_policy,
@@ -728,6 +870,7 @@ def start_visible_codex_worker(
         "prompt_composer_model": composer_model if compose_with_haiku else None,
         "prompt_composer_effort": composer_effort if compose_with_haiku else None,
         "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
+        "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
     })
     if compose_with_haiku:
         composer_prompt = _haiku_codex_prompt_composer_prompt(
@@ -762,10 +905,12 @@ def start_visible_codex_worker(
             composer_model,
             composer_effort,
             composer_max_budget_usd,
+            steer_idle_seconds,
         ),
         encoding="utf-8",
     )
     pid = _launch(script)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
     return {
         "run_id": run_dir.name,
         "pid": pid,
@@ -774,6 +919,7 @@ def start_visible_codex_worker(
         "display_log": str(run_dir / "display.log"),
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
+        "steer_queue": str(run_dir / "steer_queue"),
         "note": f"A visible PowerShell window was launched. Codex is forced to gpt-5.5/xhigh/service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
@@ -789,6 +935,7 @@ def start_visible_haiku_composed_codex_worker(
     resume_session_id: str = "",
     requires_tool_access: bool = False,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
 ) -> dict[str, Any]:
     """Launch a visible Codex worker from a compact Claude brief expanded by Claude Haiku."""
     return start_visible_codex_worker(
@@ -806,6 +953,7 @@ def start_visible_haiku_composed_codex_worker(
         composer_model=CLAUDE_PROMPT_COMPOSER_MODEL,
         composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
         composer_max_budget_usd=composer_max_budget_usd,
+        steer_idle_seconds=steer_idle_seconds,
     )
 
 
@@ -822,6 +970,7 @@ def start_visible_first_mate_codex_pool(
     session_context: str = "",
     resume_session_id: str = "",
     requires_tool_access: bool = False,
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
 ) -> dict[str, Any]:
     """Launch a visible Codex root session instructed to act as first mate and manage parallel Codex subagents."""
     scout_areas = scout_areas or []
@@ -868,7 +1017,115 @@ If the intent is read-only/no-edit, do not attempt implementation. Scout and sum
         session_context=session_context,
         resume_session_id=resume_session_id,
         requires_tool_access=requires_tool_access or auto_full_tool_access,
+        steer_idle_seconds=steer_idle_seconds,
     )
+
+
+@mcp.tool()
+def steer_visible_codex_run(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    interrupt_current_turn: bool = False,
+    requires_tool_access: bool = False,
+) -> dict[str, Any]:
+    """Send a Claude steering instruction to a visible Codex run, resuming the same Codex thread if needed."""
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status_name = _status_name(status)
+    if metadata.get("agent") not in (None, "codex"):
+        return {"ok": False, "error": f"run_dir is not a Codex visible run: {path}", "metadata": metadata}
+
+    requested_sandbox = sandbox.strip()
+    permission_contract = (
+        _codex_permission_contract(requested_sandbox, CODEX_FULL_TOOL_SANDBOX)
+        if requested_sandbox
+        else ""
+    )
+    steer_path = _write_steer_file(path, instruction, session_context, title, permission_contract)
+    thread_path = path / "thread_id.txt"
+    thread_id = thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else ""
+    active = status_name == "created" or status_name == "waiting_for_steer" or status_name.startswith("running")
+    result: dict[str, Any] = {
+        "ok": True,
+        "mode": "queued",
+        "run_dir": str(path),
+        "status": status,
+        "thread_id": thread_id or None,
+        "steer_file": str(steer_path),
+        "note": "Steering was queued. The visible Codex window will consume it after the current turn, or during its steering idle window.",
+    }
+
+    if active and not interrupt_current_turn:
+        return result
+
+    if interrupt_current_turn and active:
+        if not thread_id:
+            result["mode"] = "queued_no_interrupt_no_thread"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because no Codex thread id is available yet."
+            return result
+        pid_path = path / "launcher_pid.txt"
+        if not pid_path.exists():
+            result["mode"] = "queued_no_interrupt_no_pid"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because the launcher pid is unavailable."
+            return result
+        try:
+            pid = pid_path.read_text(encoding="utf-8-sig").strip()
+            killed = subprocess.run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True, text=True, timeout=10)
+            if killed.returncode != 0:
+                result["mode"] = "queued_interrupt_failed"
+                result["interrupt_warning"] = (killed.stderr or killed.stdout or "").strip()
+                result["note"] = "Steering was queued, but the active visible run could not be interrupted cleanly."
+                return result
+            result["interrupted_pid"] = pid
+        except Exception as exc:
+            result["mode"] = "queued_interrupt_failed"
+            result["interrupt_warning"] = str(exc)
+            result["note"] = "Steering was queued, but the active visible run could not be interrupted cleanly."
+            return result
+
+    if not launch_if_closed and not interrupt_current_turn:
+        result["mode"] = "queued_no_active_runner"
+        result["note"] = "Steering was queued, but the visible run is not active and launch_if_closed is false."
+        return result
+
+    if not thread_id:
+        result["mode"] = "queued_no_resume_thread"
+        result["note"] = "Steering was queued, but no Codex thread id is available to launch a resume run."
+        return result
+
+    cwd = _infer_cwd_from_run_dir(path, metadata)
+    steer_prompt = steer_path.read_text(encoding="utf-8")
+    resume_context = "\n\n".join(
+        part for part in [
+            f"Previous visible run: {path}",
+            f"Previous status: {status_name}",
+            f"Previous Codex thread id: {thread_id}",
+            session_context.strip(),
+        ] if part
+    )
+    followup = start_visible_codex_worker(
+        prompt=steer_prompt,
+        cwd=cwd,
+        title=title,
+        sandbox=requested_sandbox or metadata.get("requested_sandbox") or "read-only",
+        approval_policy=metadata.get("approval_policy") or "never",
+        session_context=resume_context,
+        resume_session_id=thread_id,
+        requires_tool_access=bool(requires_tool_access or metadata.get("requires_tool_access") or metadata.get("auto_full_tool_access")),
+        compose_with_haiku=False,
+        steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
+    )
+    result["mode"] = "launched_resume"
+    result["followup_run"] = followup
+    result["note"] = "The previous visible run was not available for in-window steering, so a visible Codex resume run was launched on the same thread."
+    return result
 
 
 @mcp.tool()
@@ -945,6 +1202,8 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     thread_path = path / "thread_id.txt"
     session_path = path / "session_id.txt"
     metadata_path = path / "metadata.json"
+    steer_queue = path / "steer_queue"
+    steer_done = path / "steer_done"
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
     lines: list[str] = []
@@ -957,6 +1216,8 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "metadata": metadata,
         "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
         "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
+        "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
+        "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
         "tail": "\n".join(lines),
     }
 
@@ -974,6 +1235,8 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
         metadata_path = run / "metadata.json"
         thread_path = run / "thread_id.txt"
         session_path = run / "session_id.txt"
+        steer_queue = run / "steer_queue"
+        steer_done = run / "steer_done"
         result.append({
             "run_id": run.name,
             "run_dir": str(run),
@@ -981,6 +1244,8 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
             "metadata": json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {},
             "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
             "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
+            "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
+            "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
         })
     return result
 

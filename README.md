@@ -11,6 +11,7 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - `start_visible_codex_worker` - launch `codex exec --json` in a visible window with saved logs.
 - `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch Codex.
 - `start_visible_first_mate_codex_pool` - launch a visible Codex root coordinator that spawns/manages subagents.
+- `steer_visible_codex_run` - queue a captain steering note into an active visible Codex run, or launch a visible resume run on the same thread if the window already closed.
 - `start_visible_claude_advisor` - launch a visible Claude Code advisor run.
 - `get_visible_run_status` / `list_visible_runs` - read status and recent log lines from a run directory.
 
@@ -21,6 +22,7 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - Long Codex delegation prompts should be written by the Haiku prompt composer, not by Opus.
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
+- Claude can steer visible Codex runs with `steer_visible_codex_run`; active windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
 
 ## Firstmate skill
 
@@ -136,6 +138,12 @@ This copy includes fixes over the original bridge, found while testing against C
 7. **Session context and resume.** Visible workers inject a session-context bootstrap and can resume prior Codex
    threads or Claude advisor sessions by id.
 
+8. **Claude could not steer visible Codex mid-session.** Visible Codex runs now create `steer_queue/` and
+   `steer_done/` directories. Claude can call `steer_visible_codex_run` to queue captain instructions into an
+   active run; the same visible window consumes them on the recorded Codex thread after the current turn. If the
+   window already closed, the tool starts a visible `codex resume` run against the same `thread_id`. Steering can
+   also carry an updated `sandbox` permission intent when Claude moves a run from scouting to scoped writes.
+
 ## Usage
 
 Wire it into an MCP client, such as Claude Code, by pointing at the script:
@@ -166,6 +174,7 @@ visible-agent tools:
       "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_codex_worker",
       "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_haiku_composed_codex_worker",
       "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_first_mate_codex_pool",
+      "mcp__plugin_claude-manages-codex_agent-visibility__steer_visible_codex_run",
       "mcp__plugin_claude-manages-codex_agent-visibility__get_visible_run_status",
       "mcp__plugin_claude-manages-codex_agent-visibility__list_visible_runs"
     ]

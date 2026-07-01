@@ -1,6 +1,6 @@
 ---
 name: claude-manages-codex
-description: Use when Claude Code should act as project manager, first mate, architect, and reviewer while delegating implementation, exploration, Codex subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to OpenAI Codex through the bundled codex-worker and visible agent MCP servers. Trigger for requests like "have Claude manage Codex", "delegate this to Codex", "use Codex as the worker", "parallelize with Codex", "ask Codex to implement", "use Codex subagents", "show visible worker logs", "first mate", or any coding task where Claude should make high-level decisions and Codex should do low-level work.
+description: Use when Claude Code should act as project manager, first mate, architect, and reviewer while delegating implementation, exploration, Codex subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to OpenAI Codex through the bundled codex-worker and visible agent MCP servers. Trigger for requests like "have Claude manage Codex", "delegate this to Codex", "use Codex as the worker", "parallelize with Codex", "ask Codex to implement", "use Codex subagents", "show or steer visible worker logs", "first mate", or any coding task where Claude should make high-level decisions and Codex should do low-level work.
 ---
 
 # claude-manages-codex
@@ -100,6 +100,7 @@ The server exposes:
 - `start_visible_codex_worker`: launches `codex exec --json` in a separate visible PowerShell window, saves the prompt and event logs, and returns a run directory.
 - `start_visible_haiku_composed_codex_worker`: launches a visible run where Claude passes a compact `prompt_brief`, Haiku/low composes the full Codex prompt, then Codex executes it.
 - `start_visible_first_mate_codex_pool`: launches a visible Codex root coordinator instructed to spawn and manage Codex subagents.
+- `steer_visible_codex_run`: sends a captain steering instruction to an existing visible Codex run. If the visible window is active, the instruction is queued and consumed on the same Codex thread. If the window already closed and a `thread_id` exists, it launches a visible resume run on that thread.
 - `get_visible_run_status`: reads status and recent log lines from a visible run directory.
 - `list_visible_runs`: lists recent visible runs.
 
@@ -112,6 +113,7 @@ Use these optional arguments:
 - `requires_tool_access`: set `true` for SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging.
 - `compose_with_haiku`: optional on `start_visible_codex_worker`; set `true` when `prompt` is a compact brief rather than a final Codex prompt.
 - `prompt_brief`: use this with `start_visible_haiku_composed_codex_worker`. Keep it short: objective, decisions, constraints, scope, verification, and non-goals.
+- `steer_idle_seconds`: visible Codex runs wait briefly after each turn for queued steering, then close and reap child processes.
 
 Use visible tools for:
 
@@ -122,6 +124,19 @@ Use visible tools for:
 - any user request to see live work
 
 Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation so Opus emits a compact brief instead of the full Codex prompt. Use direct `start_visible_codex_worker` only for tiny prompts or when a final prompt already exists outside Opus output.
+
+## Active Steering Loop
+
+Claude should actively manage a visible Codex run instead of letting it drift:
+
+1. Start one visible Codex root or first-mate run with the goal, constraints, and acceptance criteria.
+2. Poll with `get_visible_run_status`; read the tail, pending steer count, thread id, and status.
+3. When Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory.
+4. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
+5. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
+6. If the visible window closed, let `steer_visible_codex_run` launch a visible resume run on the same thread. Start fresh only for unrelated work or polluted context.
+
+Keep steering notes short. State the decision, changed scope, files or tests to focus on, and required next response shape. Do not restate the whole task unless the thread lost context.
 
 Use invisible `codex` / `codex-reply` for quick, low-noise, manager-controlled exchanges where live observation is not needed.
 
@@ -183,7 +198,8 @@ Before starting or resuming Codex:
 2. If context predates the current Claude window or was compacted, invoke `read-past-sessions` or tell Codex to use it immediately.
 3. Pass `session_context` into `start_visible_codex_worker` / `start_visible_first_mate_codex_pool`.
 4. If continuing previous work, pass `resume_session_id` instead of starting a new root run. For Codex this is the `thread_id` shown by `get_visible_run_status` or `list_visible_runs`.
-5. Record resumable ids in `.claude-codex/BRIDGE.md`.
+5. For an already-running visible worker, call `steer_visible_codex_run` instead of starting another root session.
+6. Record resumable ids in `.claude-codex/BRIDGE.md`.
 
 Use a fresh Codex session only for unrelated work or when the old session is polluted.
 
@@ -306,8 +322,9 @@ When launching visible work:
 1. Tell the user a visible terminal window is opening.
 2. Include the run directory in the bridge ledger.
 3. Use `get_visible_run_status` for concise progress checks instead of reading raw JSONL.
-4. Expect the visible terminal to show prompts, messages, commands, token usage, and diff summaries.
-5. Do not promise hidden thoughts. Say "progress, reasoning summaries, commands, and implementation state" instead.
+4. Use `steer_visible_codex_run` when Claude needs to redirect the active worker; the terminal will show queued steering and follow-up turns.
+5. Expect the visible terminal to show prompts, messages, commands, token usage, and diff summaries.
+6. Do not promise hidden thoughts. Say "progress, reasoning summaries, commands, and implementation state" instead.
 
 ## Bridge Ledger
 
@@ -361,4 +378,4 @@ Before final response, Claude independently checks:
 - no unrelated files or metadata changed
 - no destructive or broad-permission action was taken without user approval
 
-If the result is wrong, use `codex-reply` with a specific repair instruction. Do not ask Codex to review itself as the only validation step.
+If the result is wrong, use `steer_visible_codex_run` for visible runs or `codex-reply` for invisible runs with a specific repair instruction. Do not ask Codex to review itself as the only validation step.
