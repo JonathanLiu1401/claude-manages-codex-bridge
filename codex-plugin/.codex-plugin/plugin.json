@@ -1,6 +1,6 @@
 {
   "name": "codex-consults-claude",
-  "version": "0.1.0+codex.20260630200517",
+  "version": "0.1.0+codex.20260701165600",
   "description": "Let Codex consult Claude Code as an advisor for plan checks, sanity checks, architecture, and review through Claude Code's MCP server.",
   "author": {
     "name": "Jonathan Liu"

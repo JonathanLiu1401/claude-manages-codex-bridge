@@ -29,7 +29,11 @@ CODEX_REASONING_EFFORT = "xhigh"
 CODEX_SERVICE_TIER = "fast"
 CODEX_FULL_TOOL_SANDBOX = "danger-full-access"
 CODEX_DEFAULT_SANDBOX = CODEX_FULL_TOOL_SANDBOX
-CLAUDE_MODEL = "opus"
+CLAUDE_ADVISOR_MODEL_ENV = "CLAUDE_MANAGES_CODEX_ADVISOR_MODEL"
+CLAUDE_ADVISOR_MODEL_UNTIL_ENV = "CLAUDE_MANAGES_CODEX_FABLE_UNTIL"
+CLAUDE_ADVISOR_PRIMARY_MODEL = "fable"
+CLAUDE_ADVISOR_FALLBACK_MODEL = "opus"
+CLAUDE_ADVISOR_PRIMARY_UNTIL = _dt.date(2026, 7, 7)
 CLAUDE_EFFORT = "high"
 CLAUDE_MAX_BUDGET_USD = "0.50"
 CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
@@ -62,6 +66,36 @@ TOOL_ACCESS_KEYWORDS = (
 )
 
 
+def _advisor_primary_until() -> _dt.date:
+    raw = os.environ.get(CLAUDE_ADVISOR_MODEL_UNTIL_ENV, "").strip()
+    if raw:
+        try:
+            return _dt.date.fromisoformat(raw)
+        except ValueError:
+            pass
+    return CLAUDE_ADVISOR_PRIMARY_UNTIL
+
+
+def _default_claude_advisor_model(today: _dt.date | None = None) -> str:
+    override = os.environ.get(CLAUDE_ADVISOR_MODEL_ENV, "").strip()
+    if override:
+        return override
+    today = today or _dt.date.today()
+    if today <= _advisor_primary_until():
+        return CLAUDE_ADVISOR_PRIMARY_MODEL
+    return CLAUDE_ADVISOR_FALLBACK_MODEL
+
+
+def _claude_advisor_model_policy() -> str:
+    override = os.environ.get(CLAUDE_ADVISOR_MODEL_ENV, "").strip()
+    if override:
+        return f"{CLAUDE_ADVISOR_MODEL_ENV}={override}"
+    return (
+        f"{CLAUDE_ADVISOR_PRIMARY_MODEL} through {_advisor_primary_until().isoformat()}, "
+        f"then {CLAUDE_ADVISOR_FALLBACK_MODEL}; override with {CLAUDE_ADVISOR_MODEL_ENV}"
+    )
+
+
 FIRSTMATE_CONTRACT = """
 You are Codex First Mate.
 Claude Code is the captain.
@@ -74,6 +108,8 @@ Runtime requirement: use Codex gpt-5.5, xhigh reasoning, and service_tier=fast f
 Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief.
 
 Tool-access requirement: this bridge gives Codex workers full process/tool access so Python skills, read-past-sessions, SSH, and external CLIs work. Treat Claude's requested sandbox as permission intent. If intent is read-only/no-edit, do not modify files or external state even though tools are available.
+
+Prompt-cost requirement: expect Claude's active manager model to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
 
 Prime directives:
 - Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, scoped implementation, verification, review, or recovery.
@@ -212,7 +248,7 @@ def _haiku_codex_prompt_composer_prompt(
 ) -> str:
     context = session_context.strip() or "None supplied."
     return textwrap.dedent(f"""
-    You are Claude Haiku acting as a cheap prompt composer for a Claude Opus -> Codex bridge.
+    You are Claude Haiku acting as a cheap prompt composer for a Claude manager -> Codex bridge.
 
     Your job is ONLY to turn the compact captain brief into a clear Codex worker prompt.
     Do not make architectural decisions, choose a different plan, ask questions, read files, run tools, or add broad new scope.
@@ -229,7 +265,7 @@ def _haiku_codex_prompt_composer_prompt(
     6. Verification commands or checks.
     7. Required final response format for Codex.
 
-    Keep the prompt complete enough that Codex does not need Opus to restate it, but avoid filler and raw transcript.
+    Keep the prompt complete enough that Codex does not need the manager model to restate it, but avoid filler and raw transcript.
 
     Runtime facts:
     - Title: {title}
@@ -1150,18 +1186,18 @@ def start_visible_claude_advisor(
     prompt: str,
     cwd: str,
     title: str = "Claude advisor",
-    model: str = CLAUDE_MODEL,
+    model: str = "",
     effort: str = CLAUDE_EFFORT,
     max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
     session_context: str = "",
     resume_session_id: str = "",
 ) -> dict[str, Any]:
     """Launch a visible, budget-capped, one-shot Claude Code advisor run in a separate PowerShell window."""
-    effective_model = CLAUDE_MODEL
+    effective_model = _default_claude_advisor_model()
     effective_effort = CLAUDE_EFFORT
     effective_budget = max_budget_usd or CLAUDE_MAX_BUDGET_USD
     bounded_prompt = f"""
-You are Claude Code acting as an expensive, one-shot advisor to Codex.
+You are Claude Code acting as an expensive, one-shot executive advisor to Codex.
 
 Budget rules:
 - Be concise. Target under 500 words unless critical details require more.
@@ -1169,6 +1205,7 @@ Budget rules:
 - Do not perform broad codebase reading. Rely on the distilled context Codex provided.
 - Ask at most 3 clarifying questions only if no safe recommendation is possible.
 - Prefer a direct decision, risks, and specific instructions for Codex.
+- Do not write implementation code. Provide architecture, acceptance criteria, review findings, and next worker instructions.
 
 Advisor request:
 {prompt}
@@ -1181,6 +1218,7 @@ Advisor request:
         "max_budget_usd": effective_budget,
         "requested_model": model,
         "requested_effort": effort,
+        "model_policy": _claude_advisor_model_policy(),
         "resume_session_id": resume_session_id or None,
         "session_context_supplied": bool(session_context.strip()),
         "permission_mode": "plan",
@@ -1206,7 +1244,7 @@ Advisor request:
         "display_log": str(run_dir / "display.log"),
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
-        "note": "A visible PowerShell window was launched for Claude advisor output. Claude is forced to opus/high. Hidden model reasoning is not exposed.",
+        "note": f"A visible PowerShell window was launched for Claude advisor output. Claude is forced to {effective_model}/high by the central advisor model policy. Hidden model reasoning is not exposed.",
     }
 
 

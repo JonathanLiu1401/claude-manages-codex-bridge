@@ -17,7 +17,7 @@ Session requirement: do not act as a blank chat. Use caller-provided context fir
 
 Tool-access requirement: Codex workers in this bridge need full process/tool access so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Treat Claude's sandbox request as permission intent. `read-only` means no edits, not no Python/tools.
 
-Prompt-cost requirement: expect Claude Opus to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
+Prompt-cost requirement: expect Claude's active manager model to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
 
 ## Prime Directives
 

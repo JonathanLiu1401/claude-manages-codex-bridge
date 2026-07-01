@@ -5,7 +5,7 @@ description: Use when Codex should ask Claude Code for lightweight advice, plan 
 
 # Claude Advisor
 
-Use Claude Code as an expensive advisor. Codex remains the worker and final executor.
+Use Claude Code's active manager model as an expensive executive advisor. Codex remains the worker and final executor.
 
 ## When to Ask
 
@@ -33,14 +33,14 @@ Available tools:
 
 Default advisor limits:
 
-- Claude model: `opus`
+- Claude model: bridge policy (`fable` / `high` through July 7, 2026, then `opus` / `high`)
 - Claude effort: `high`
 - `max_budget_usd`: `0.50`
 - use a smaller explicit budget only when the answer is tiny and budget-cap failure is acceptable
 - session persistence is enabled so cut-off advisor runs can be resumed by session id
 - the visible terminal auto-closes a few seconds after completion
 
-Do not start extended Claude sessions from Codex. Do not use Claude for broad codebase reading; summarize with Codex first, then send Claude the distilled decision point.
+Do not start extended Claude sessions from Codex. Do not use Claude for broad codebase reading or implementation writing; summarize with Codex first, then send Claude the distilled decision point.
 
 Visible advisor output shows prompts, streamed messages, tool/progress events, cost metadata, and logs. It cannot show hidden chain-of-thought.
 
@@ -56,7 +56,7 @@ If the context started in an earlier chat or was compacted, use `read-past-sessi
 Use this shape for a quick plan check:
 
 ```text
-You are Claude Code acting as advisor. Codex is the implementation worker.
+You are Claude Code acting as executive advisor. Codex is the implementation worker.
 
 Task: <user goal>
 Session context: <compact current/previous-session briefing; include run ids and prior failures>
@@ -80,7 +80,7 @@ Do not edit files.
 Use this when Codex is stuck:
 
 ```text
-You are Claude Code acting as advisor. Codex is confused and needs direction.
+You are Claude Code acting as executive advisor. Codex is confused and needs direction.
 
 Goal: <user goal>
 Session context: <what has already happened and what not to repeat>
@@ -98,7 +98,7 @@ Do not edit files.
 Use this before finalizing a risky or non-trivial diff:
 
 ```text
-You are Claude Code acting as advisor and reviewer. Codex implemented the change.
+You are Claude Code acting as executive advisor and reviewer. Codex implemented the change.
 
 Goal: <user goal>
 Session context: <compact current/previous-session briefing>
@@ -123,4 +123,4 @@ Do not edit files.
 - Record Claude `session_id` when a continuation may be useful.
 
 Keep advisor prompts compact. Send facts, paths, constraints, and options; avoid raw logs, large code dumps, secrets, or hidden reasoning.
-Ask Claude for architectural decisions, not fully written Codex prompts. If Claude needs to delegate more work to Codex, it should use the Haiku-composed Codex worker path so Opus emits only a compact captain brief.
+Ask Claude for architectural decisions, not implementation code or fully written Codex prompts. If Claude needs to delegate more work to Codex, it should use the Haiku-composed Codex worker path so the manager model emits only a compact captain brief.

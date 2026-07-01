@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import time
@@ -78,6 +80,27 @@ def _assert_launcher_exited(run_dir: Path) -> None:
             return
         time.sleep(1)
     raise AssertionError(f"launcher process still alive after run completion: pid={pid} run={run_dir}")
+
+
+def _assert_model_policy() -> None:
+    saved_model = os.environ.get(bridge.CLAUDE_ADVISOR_MODEL_ENV)
+    saved_until = os.environ.get(bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV)
+    try:
+        os.environ.pop(bridge.CLAUDE_ADVISOR_MODEL_ENV, None)
+        os.environ.pop(bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV, None)
+        assert bridge._default_claude_advisor_model(dt.date(2026, 7, 7)) == "fable"
+        assert bridge._default_claude_advisor_model(dt.date(2026, 7, 8)) == "opus"
+        os.environ[bridge.CLAUDE_ADVISOR_MODEL_ENV] = "opus"
+        assert bridge._default_claude_advisor_model(dt.date(2026, 7, 1)) == "opus"
+    finally:
+        if saved_model is None:
+            os.environ.pop(bridge.CLAUDE_ADVISOR_MODEL_ENV, None)
+        else:
+            os.environ[bridge.CLAUDE_ADVISOR_MODEL_ENV] = saved_model
+        if saved_until is None:
+            os.environ.pop(bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV, None)
+        else:
+            os.environ[bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV] = saved_until
 
 
 def _wait_completed(run_dir: Path, markers: list[str], timeout_s: int = 300) -> str:
@@ -281,6 +304,9 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
+    print("[0/6] advisor model policy", flush=True)
+    _assert_model_policy()
+
     print("[1/6] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)

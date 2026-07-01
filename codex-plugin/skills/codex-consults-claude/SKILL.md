@@ -5,18 +5,18 @@ description: Use when Codex should ask Claude Code for expensive architectural a
 
 # codex-consults-claude
 
-Use Codex as the worker harness and Claude Code as the expensive manager/advisor.
+Use Codex as the worker harness and Claude Code's active manager model as the expensive executive manager/advisor.
 
 ## Role Boundary
 
 - Claude owns architecture, scope decisions, permission decisions, and final review.
 - Codex owns implementation, exploration, mechanical changes, test repair, and cheap parallel subagent work.
 - Codex should not spend Claude tokens on routine implementation details.
-- When Codex does call Claude, use Claude `opus` with `high` effort. Do not downgrade the advisor model.
+- When Codex does call Claude, use the bridge advisor model policy: `fable` / `high` through July 7, 2026, then `opus` / `high`. Do not downgrade the advisor model.
 - Every Claude advisor call must include current session context or tell Claude to recover it with `read-past-sessions` before advising.
 - Codex workers in this bridge need full process/tool access so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Treat `read-only` as no-edit permission intent, not a literal process sandbox.
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must use a full-tool Codex worker.
-- Do not ask Opus to write long Codex worker prompts. Opus should return decisions and constraints; the Claude-side bridge uses Haiku/low to compose detailed Codex prompts.
+- Do not ask the Claude manager model to write long Codex worker prompts or implementation code. It should return decisions, constraints, acceptance criteria, and review findings; the Claude-side bridge uses Haiku/low to compose detailed Codex prompts.
 - When the user wants visibility, use visible advisor tools so the prompt and streamed output appear in a terminal and logs.
 
 Consult Claude when:
@@ -52,7 +52,7 @@ The server exposes:
 
 Use visible advisor sessions only for expensive/high-level Claude consultations, final review requests, and user-requested observed advisor work.
 
-The visible advisor launcher forces Claude to `opus` / `high` even if a caller passes cheaper values. It keeps the process one-shot and exits after the run, but persists the Claude session id so a cut-off run can be resumed.
+The visible advisor launcher uses the central advisor model policy even if a caller passes cheaper values: `fable` / `high` through July 7, 2026, then `opus` / `high`. It keeps the process one-shot and exits after the run, but persists the Claude session id so a cut-off run can be resumed.
 
 Use these optional arguments:
 
@@ -61,7 +61,7 @@ Use these optional arguments:
 
 Hard limits:
 
-- Default `max_budget_usd` is `0.50` because opus/high has higher startup cost.
+- Default `max_budget_usd` is `0.50` because the manager model has higher startup cost.
 - Use a lower explicit budget only when the expected answer is tiny and failure from budget cap is acceptable.
 - Use more than `0.50` only when the user explicitly asks or the risk is high enough to justify it.
 - Do not start extended Claude sessions from Codex.
@@ -73,7 +73,7 @@ The visible window shows prompts, streamed messages, tool/progress events, cost 
 ## Consultation Template
 
 ```text
-You are Claude, the architectural advisor. Codex is the implementation worker.
+You are Claude Code, the executive architectural advisor. Codex is the implementation worker.
 
 Goal: <what the user wants>
 Session context: <compact summary of current conversation and previous run ids>
@@ -86,9 +86,9 @@ Give a concise recommendation with:
 1. decision
 2. reasoning
 3. risks
-4. specific instructions Codex should follow
+4. acceptance criteria and specific instructions Codex should follow
 
-Do not edit files.
+Do not edit files or write implementation code.
 ```
 
 ## Session Context and Resume

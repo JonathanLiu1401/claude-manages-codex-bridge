@@ -1,24 +1,25 @@
 ---
 name: claude-manages-codex
-description: Use when Claude Code should act as project manager, first mate, architect, and reviewer while delegating implementation, exploration, Codex subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to OpenAI Codex through the bundled codex-worker and visible agent MCP servers. Trigger for requests like "have Claude manage Codex", "delegate this to Codex", "use Codex as the worker", "parallelize with Codex", "ask Codex to implement", "use Codex subagents", "show or steer visible worker logs", "first mate", or any coding task where Claude should make high-level decisions and Codex should do low-level work.
+description: Use when Claude Code should act as executive architect, QA tech lead, first-mate captain, and reviewer while delegating implementation, exploration, Codex subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to OpenAI Codex through the bundled codex-worker and visible agent MCP servers. Trigger for requests like "have Claude manage Codex", "delegate this to Codex", "use Codex as the worker", "parallelize with Codex", "ask Codex to implement", "use Codex subagents", "show or steer visible worker logs", "first mate", or any coding task where Claude should make high-level decisions and Codex should do low-level work.
 ---
 
 # claude-manages-codex
 
-Use Claude as captain, manager, architect, and reviewer. Use Codex as the first mate and worker harness, including Codex root sessions and Codex subagents.
+Use Claude's active manager model as captain, executive architect, QA tech lead, and reviewer. Use Codex as the first mate and worker harness, including Codex root sessions and Codex subagents.
 
 ## Core Model
 
-- Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, and final review. In the first-mate flow, Claude is the captain.
+- Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, active steering, and final review. In the first-mate flow, Claude is the captain.
 - Codex owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work. In the first-mate flow, Codex is the first mate that manages the Codex agent ensemble.
 - Codex subagents are controlled through the Codex root session. Claude starts or resumes the root session with `codex` / `codex-reply`, then explicitly tells Codex when and how to spawn subagents.
 - Claude must review Codex output and local diffs before claiming completion.
 - Prefer Codex MCP over manual copy/paste.
+- The Claude manager model does not write implementation code by default. It writes plans, contracts, constraints, acceptance tests, review findings, steering notes, and the final user response. Route code edits to Codex unless the edit is tiny, the bridge is unavailable, or the user explicitly asks Claude to code directly.
 - Every Codex run uses `gpt-5.5`, `xhigh` reasoning, and `service_tier=fast`. Do not downgrade for cheap scouting; token savings come from routing work to Codex, not weakening Codex.
 - Every new or resumed Codex run receives session context. Pass a compact `session_context` argument when using visible tools, and tell Codex to use `read-past-sessions` before acting when it needs the full transcript.
 - Codex workers run with full process/tool access by default so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Use the requested `sandbox` as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must set `requires_tool_access: true` or `sandbox: danger-full-access`.
-- Do not spend Opus output tokens writing long Codex prompts. Opus should pass a compact captain brief to the Haiku prompt composer; Haiku expands the final Codex worker prompt.
+- Do not spend manager-model output tokens writing long Codex prompts. Claude should pass a compact captain brief to the Haiku prompt composer; Haiku expands the final Codex worker prompt.
 - Prefer visible workers when the user wants to observe progress. Visible workers show prompts, streamed events, agent messages, commands, token usage, and diffs in a separate terminal plus logs under `.claude-codex/runs/`.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
 
@@ -48,9 +49,43 @@ Do not copy the official plugin command scripts into this plugin just to expose 
 
 Use this bridge's visible first-mate pool instead of `/codex:rescue` when the user wants observable multi-agent fan-out, a Claude-as-captain / Codex-as-first-mate hierarchy, or a coordinated ensemble of Codex agents. The official `/codex:rescue` path is best for single delegated rescue tasks and background job management.
 
+## Manager Model Policy
+
+Treat the active Claude manager model as the executive orchestrator, not the implementing engineer.
+
+Default advisor model policy:
+
+- use `fable` / `high` through July 7, 2026 while it is available in Claude Code
+- use `opus` / `high` after July 7, 2026
+- override without editing files by setting `CLAUDE_MANAGES_CODEX_ADVISOR_MODEL`
+
+The manager model should spend reasoning on:
+
+- system architecture, dependency mapping, data-flow decisions, and risk triage
+- decomposing work into file-scoped Codex tasks and first-mate pools
+- acceptance criteria, verification strategy, and rollback/safety boundaries
+- active steering through `steer_visible_codex_run`
+- independent diff and test review before completion
+
+The manager model should not spend output tokens on:
+
+- broad codebase reading that Codex can summarize
+- boilerplate implementation, mechanical refactors, formatting, or test repair
+- long worker prompts; use Haiku prompt composition
+- raw log analysis unless Codex cannot summarize the evidence
+
+Default manager loop:
+
+1. Decide the architecture and acceptance criteria.
+2. Start or resume a visible Codex worker or first-mate pool with a compact `session_context`.
+3. Poll status and steer with short captain instructions when drift appears.
+4. Let Codex implement, verify, and summarize.
+5. Claude reviews the diff, tests, risks, and worker ledger. Reject or steer repair when the output does not match the architecture.
+6. Claude writes the final user response only after the review gate passes or clearly reports incomplete verification.
+
 ## Routing Mandate: Parallel Agents and Heavy Work → Codex
 
-**Default rule: while this skill is active, Claude does not spawn its own parallel subagents and does not do heavy implementation directly. That work routes through Codex to preserve Claude tokens.** This overrides the default dispatch behavior of other skills and tools.
+**Default rule: while this skill is active, Claude does not spawn its own parallel subagents and does not do implementation directly. That work routes through Codex to preserve Claude tokens and keep the manager model focused on architecture and review.** This overrides the default dispatch behavior of other skills and tools.
 
 **Always route to Codex** — start or resume a Codex root session, then have it spawn `claude-explorer` / `claude-implementer` / `claude-reviewer` subagents:
 
@@ -59,11 +94,11 @@ Use this bridge's visible first-mate pool instead of `/codex:rescue` when the us
 
 **Honor the other skill's discipline, delegate its execution.** When a process skill applies (TDD, systematic-debugging, executing-plans), Claude still follows that skill's method and checklist — but the actual fan-out and edits are carried out by Codex subagents, with the brief encoding the required discipline (e.g. "write the failing test first, then implement"). Claude decomposes, writes the briefs, and reviews; Codex executes.
 
-**Claude keeps (never route):** architecture, task decomposition, acceptance criteria, risk and security calls, final review of every Codex diff, and the user-facing response.
+**Claude keeps (never route):** architecture, task decomposition, acceptance criteria, risk and security calls, steering decisions, final review of every Codex diff, and the user-facing response.
 
 **Do NOT route to Codex when:**
 
-- The edit is tiny (single file, a few lines) where Codex coordination overhead exceeds the token savings — Claude just does it.
+- The edit is tiny (single file, a few lines) where Codex coordination overhead exceeds the token savings and the user has not asked for strict delegation.
 - The work needs tools or context only Claude can reach (MCP servers Codex lacks, this session's live state).
 - The Codex bridge is unavailable or erroring — fall back to Claude and tell the user.
 - The user explicitly asks Claude to do the work directly.
@@ -123,7 +158,7 @@ Use visible tools for:
 - SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging where Codex must run the same tools a developer would run
 - any user request to see live work
 
-Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation so Opus emits a compact brief instead of the full Codex prompt. Use direct `start_visible_codex_worker` only for tiny prompts or when a final prompt already exists outside Opus output.
+Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation so the manager model emits a compact brief instead of the full Codex prompt. Use direct `start_visible_codex_worker` only for tiny prompts or when a final prompt already exists outside Claude output.
 
 ## Active Steering Loop
 
@@ -299,9 +334,9 @@ Spawn one claude-reviewer subagent. Review the current diff against Claude's sta
 
 ## Token Efficiency
 
-- For non-trivial Codex delegation, Opus writes a compact captain brief and calls `start_visible_haiku_composed_codex_worker`. Haiku/low writes the long worker prompt.
-- Keep the Opus-authored `prompt_brief` to decisions and constraints: goal, scope, permission intent, files/areas, non-goals, verification, and open questions.
-- Do not have Opus restate standard bridge rules, full task templates, or long worker checklists; the bridge and Haiku composer add those.
+- For non-trivial Codex delegation, Claude writes a compact captain brief and calls `start_visible_haiku_composed_codex_worker`. Haiku/low writes the long worker prompt.
+- Keep the Claude-authored `prompt_brief` to decisions and constraints: goal, scope, permission intent, files/areas, non-goals, verification, and open questions.
+- Do not have Claude restate standard bridge rules, full task templates, or long worker checklists; the bridge and Haiku composer add those.
 - Send Codex distilled briefs, not the whole Claude transcript.
 - Include enough session context that Codex does not repeat already-fixed mistakes. For very long history, instruct Codex to use `read-past-sessions` and return a compact briefing before implementation.
 - Ask Codex to read and summarize the codebase before Claude reads files directly.

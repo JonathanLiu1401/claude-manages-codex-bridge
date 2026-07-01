@@ -1,7 +1,7 @@
 # claude-manages-codex-bridge
 
 A small Python MCP server (`visible_agent_bridge.py`) that powers the **visible-agent harness** for the
-`claude-manages-codex` workflow: Claude Code acts as captain/manager/architect/reviewer while OpenAI Codex
+`claude-manages-codex` workflow: Claude Code's active manager model acts as captain/executive architect/QA tech lead/reviewer while OpenAI Codex
 does the implementation work. The bridge launches Codex and Claude advisor sessions in visible PowerShell
 windows so you can watch prompts, streamed events, agent messages, commands, token usage, and diffs live,
 while also persisting logs under `.claude-codex/runs/<run-id>/`.
@@ -18,8 +18,9 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 ## Current bridge behavior
 
 - Codex workers are forced to `gpt-5.5`, `xhigh` reasoning, and `service_tier=fast`.
-- Claude advisor calls are forced to `opus` with `high` effort and a budget cap.
-- Long Codex delegation prompts should be written by the Haiku prompt composer, not by Opus.
+- Claude advisor calls use a central model policy: `fable` / `high` through July 7, 2026, then `opus` / `high`. Override with `CLAUDE_MANAGES_CODEX_ADVISOR_MODEL`.
+- The Claude manager model should not write implementation code by default; it writes architecture, constraints, acceptance criteria, steering notes, and review findings.
+- Long Codex delegation prompts should be written by the Haiku prompt composer, not by the manager model.
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
 - Claude can steer visible Codex runs with `steer_visible_codex_run`; active windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
@@ -63,7 +64,7 @@ The Claude Code plugin that drives this bridge lives under [`plugin/`](plugin/):
 
 - `plugin/.claude-plugin/plugin.json` - plugin manifest.
 - `plugin/.mcp.json` - registers the `codex-worker` (Codex MCP) and `agent-visibility` (this script) servers.
-- `plugin/skills/claude-manages-codex/SKILL.md` - the `claude-manages-codex` skill: Claude as captain/manager/reviewer, Codex as first mate and worker harness. Includes the routing mandate that sends parallel-agent fan-out and heavy coding work through Codex to preserve Claude tokens.
+- `plugin/skills/claude-manages-codex/SKILL.md` - the `claude-manages-codex` skill: Claude as executive captain/architect/reviewer, Codex as first mate and worker harness. Includes the routing mandate that sends parallel-agent fan-out and implementation work through Codex to preserve Claude tokens.
 
 The Codex-side advisor plugin lives under [`codex-plugin/`](codex-plugin/):
 
@@ -132,8 +133,8 @@ This copy includes fixes over the original bridge, found while testing against C
    while the prompt carries a separate permission contract. A `read-only` request becomes no-edit intent, so
    Codex can still run Python, `read-past-sessions`, SSH, and repo tooling without permission to mutate files.
 
-6. **Expensive Opus prompt writing.** Non-trivial Codex delegation can now go through
-   `start_visible_haiku_composed_codex_worker`: Opus emits a compact captain brief, Haiku/low expands the full
+6. **Expensive manager-model prompt writing.** Non-trivial Codex delegation can now go through
+   `start_visible_haiku_composed_codex_worker`: Claude emits a compact captain brief, Haiku/low expands the full
    worker prompt in safe mode, and Codex executes the composed prompt.
 
 7. **Session context and resume.** Visible workers inject a session-context bootstrap and can resume prior Codex
