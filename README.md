@@ -23,6 +23,7 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
 - Claude can steer visible Codex runs with `steer_visible_codex_run`; active windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
+- Visible Codex workers set `NODE_PATH` and `PLAYWRIGHT_BROWSERS_PATH` so Playwright MCP and Node-based Playwright tests can run from delegated Codex sessions.
 
 ## Firstmate skill
 

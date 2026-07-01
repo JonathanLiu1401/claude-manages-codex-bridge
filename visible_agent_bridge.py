@@ -21,6 +21,8 @@ CODEX = Path(r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
 CLAUDE = Path(r"C:\Users\jonny\.local\bin\claude.exe")
 PYTHON = Path(r"C:\Users\jonny\AppData\Local\Python\pythoncore-3.14-64\python.exe")
 READ_PAST_SESSIONS_SKILL = Path(r"C:\Users\jonny\.agents\skills\read-past-sessions")
+PLAYWRIGHT_NODE_PATH = r"C:\Users\jonny\node_modules;C:\Users\jonny\.codex\playwright-runtime\node_modules"
+PLAYWRIGHT_BROWSERS_PATH = Path(r"C:\Users\jonny\AppData\Local\ms-playwright")
 
 CODEX_MODEL = "gpt-5.5"
 CODEX_REASONING_EFFORT = "xhigh"
@@ -429,11 +431,15 @@ $ComposerModel = {_ps(composer_model)}
 $ComposerEffort = {_ps(composer_effort)}
 $ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
 $SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
+$PlaywrightNodePath = {_ps(PLAYWRIGHT_NODE_PATH)}
+$PlaywrightBrowsersPath = {_ps(PLAYWRIGHT_BROWSERS_PATH)}
 # Force UTF-8 so Codex's UTF-8 stdout/stdin is decoded correctly (avoids mojibake like the
 # right-single-quote turning into "ΓÇÖ" when PowerShell falls back to the OEM code page).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+$env:NODE_PATH = $PlaywrightNodePath
+$env:PLAYWRIGHT_BROWSERS_PATH = $PlaywrightBrowsersPath
 $Host.UI.RawUI.WindowTitle = "Codex visible worker - $(Split-Path $RunDir -Leaf)"
 
 # UTF-8 tee helper. Tee-Object in Windows PowerShell 5.1 has no -Encoding param and writes
@@ -580,6 +586,7 @@ Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
 Log-Line "Sandbox: $Sandbox | Approval: $ApprovalPolicy | Model: $Model | Reasoning: $ReasoningEffort | Service tier: $ServiceTier" 'Cyan'
+Log-Line "Playwright: NODE_PATH=$env:NODE_PATH | PLAYWRIGHT_BROWSERS_PATH=$env:PLAYWRIGHT_BROWSERS_PATH" 'Cyan'
 if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ Log-Line "Resuming Codex session/thread: $ResumeSessionId" 'Cyan' }}
 $CodexPromptPath = $PromptPath
 if ($ComposeWithHaiku) {{
