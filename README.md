@@ -144,6 +144,21 @@ This copy includes fixes over the original bridge, found while testing against C
    window already closed, the tool starts a visible `codex resume` run against the same `thread_id`. Steering can
    also carry an updated `sandbox` permission intent when Claude moves a run from scouting to scoped writes.
 
+9. **Visible launcher stayed stuck at `created`.** The launcher used PowerShell `-NoExit`, which could leave a
+   visible shell alive while the run directory stayed locked or never advanced cleanly from the caller's view. It
+   now launches with `-NoProfile` and lets the script's own short close delay control visibility and cleanup.
+
+## E2E verification
+
+Run the full bridge E2E from the repo root:
+
+```powershell
+python .\tests\e2e_visible_bridge.py
+```
+
+The suite launches real visible runs for queued steering, closed-run resume steering, interrupt steering,
+Haiku-composed Codex, first-mate Codex, and the budget-capped Claude advisor path.
+
 ## Usage
 
 Wire it into an MCP client, such as Claude Code, by pointing at the script:

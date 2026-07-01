@@ -32,7 +32,7 @@ CLAUDE_EFFORT = "high"
 CLAUDE_MAX_BUDGET_USD = "0.50"
 CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
 CLAUDE_PROMPT_COMPOSER_EFFORT = "low"
-CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.10"
+CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.25"
 CODEX_STEER_IDLE_SECONDS = 20
 
 TOOL_ACCESS_KEYWORDS = (
@@ -260,13 +260,14 @@ def _with_session_context_bootstrap(prompt: str, cwd: str, agent_role: str, sess
 
     You are starting as a spawned {agent_role}, not a blank chat. Before acting:
 
-    1. Use the `read-past-sessions` skill if it is available.
-    2. If the skill is not available, run the bundled engine directly:
+    1. Read the caller-provided context below first. If it is sufficient and explicitly says the task is self-contained, do not spend time recovering old transcripts.
+    2. Use the `read-past-sessions` skill when the task depends on prior conversation, previous run ids, compacted context, earlier decisions, or unresolved mistakes from this project.
+    3. If the skill is needed but not available, run the bundled engine directly:
        `python "{sessions_script}" list "{project_hint}" --limit 5`
        `python "{sessions_script}" show <session-id> --mode briefing --include-subagents --max-chars 120000`
-    3. Prefer the newest relevant session for this cwd/task. If a required decision is missing from the briefing, rerun `show` with `--mode full --include-subagents --max-chars 200000`.
-    4. Treat the caller-provided context below as authoritative. Use recovered session context to avoid rederiving prior decisions or repeating already-fixed mistakes.
-    5. Do not paste full transcripts back unless asked. Return compact evidence, decisions, files, verification, blockers, and questions.
+    4. Prefer the newest relevant session for this cwd/task. If a required decision is missing from the briefing, rerun `show` with `--mode full --include-subagents --max-chars 200000`.
+    5. Treat the caller-provided context below as authoritative. Use recovered session context to avoid rederiving prior decisions or repeating already-fixed mistakes.
+    6. Do not paste full transcripts back unless asked. Return compact evidence, decisions, files, verification, blockers, and questions.
 
     CWD: {cwd}
 
@@ -377,7 +378,7 @@ def _write_steer_file(
 def _launch(script_path: Path) -> int:
     flags = 0x00000010 if os.name == "nt" else 0
     proc = subprocess.Popen(
-        ["powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
         cwd=str(script_path.parent),
         creationflags=flags,
     )
@@ -751,7 +752,10 @@ function Show-ClaudeEvent($obj) {{
   }}
   if ($obj.type -eq 'assistant' -and $obj.message) {{
     foreach ($c in $obj.message.content) {{
-      if ($c.type -eq 'text') {{ $c.text | Write-Raw }}
+      if ($c.type -eq 'text') {{
+        $script:ClaudeHadResult = $true
+        $c.text | Write-Raw
+      }}
     }}
     return
   }}
@@ -785,7 +789,7 @@ Log-Line 'Starting Claude advisor. Raw stream JSON is saved to events.jsonl.' 'M
 
 $script:ClaudeHadResult = $false
 $script:ClaudeBudgetCapped = $false
-$argsList = @('-p','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$MaxBudgetUsd,'--add-dir',$Cwd)
+$argsList = @('-p','--safe-mode','--prompt-suggestions','false','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$MaxBudgetUsd,'--add-dir',$Cwd)
 if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ $argsList += @('--resume',$ResumeSessionId) }}
 if ($Model -and $Model -ne '') {{ $argsList += @('--model',$Model) }}
 if ($Effort -and $Effort -ne '') {{ $argsList += @('--effort',$Effort) }}
@@ -1122,6 +1126,12 @@ def steer_visible_codex_run(
         compose_with_haiku=False,
         steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
     )
+    try:
+        done_dir = path / "steer_done"
+        done_dir.mkdir(parents=True, exist_ok=True)
+        steer_path.replace(done_dir / steer_path.name)
+    except Exception:
+        pass
     result["mode"] = "launched_resume"
     result["followup_run"] = followup
     result["note"] = "The previous visible run was not available for in-window steering, so a visible Codex resume run was launched on the same thread."
