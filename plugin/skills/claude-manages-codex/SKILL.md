@@ -14,6 +14,11 @@ Use Claude as captain, manager, architect, and reviewer. Use Codex as the first 
 - Codex subagents are controlled through the Codex root session. Claude starts or resumes the root session with `codex` / `codex-reply`, then explicitly tells Codex when and how to spawn subagents.
 - Claude must review Codex output and local diffs before claiming completion.
 - Prefer Codex MCP over manual copy/paste.
+- Every Codex run uses `gpt-5.5`, `xhigh` reasoning, and `service_tier=fast`. Do not downgrade for cheap scouting; token savings come from routing work to Codex, not weakening Codex.
+- Every new or resumed Codex run receives session context. Pass a compact `session_context` argument when using visible tools, and tell Codex to use `read-past-sessions` before acting when it needs the full transcript.
+- Codex workers run with full process/tool access by default so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Use the requested `sandbox` as permission intent: `read-only` means no edits, not a crippled process sandbox.
+- SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must set `requires_tool_access: true` or `sandbox: danger-full-access`.
+- Do not spend Opus output tokens writing long Codex prompts. Opus should pass a compact captain brief to the Haiku prompt composer; Haiku expands the final Codex worker prompt.
 - Prefer visible workers when the user wants to observe progress. Visible workers show prompts, streamed events, agent messages, commands, token usage, and diffs in a separate terminal plus logs under `.claude-codex/runs/`.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
 
@@ -81,8 +86,8 @@ Important `codex` arguments:
 - `sandbox`: `read-only`, `workspace-write`, or `danger-full-access`.
 - `approval-policy`: use `never` unless the user explicitly wants interactive approvals.
 - `developer-instructions`: use this to enforce Claude manager / Codex worker roles.
-- `model`: omit unless the user or task requires a specific Codex model.
-- `config`: use only for known Codex config overrides.
+- `model`: set `gpt-5.5`.
+- `config`: include `model_reasoning_effort="xhigh"` and `service_tier="fast"`.
 
 When a Codex response includes `structuredContent.threadId`, record it and use `codex-reply` for follow-up to that same root worker.
 
@@ -93,16 +98,30 @@ Use the plugin-provided MCP server `agent-visibility` when the user wants to see
 The server exposes:
 
 - `start_visible_codex_worker`: launches `codex exec --json` in a separate visible PowerShell window, saves the prompt and event logs, and returns a run directory.
+- `start_visible_haiku_composed_codex_worker`: launches a visible run where Claude passes a compact `prompt_brief`, Haiku/low composes the full Codex prompt, then Codex executes it.
 - `start_visible_first_mate_codex_pool`: launches a visible Codex root coordinator instructed to spawn and manage Codex subagents.
 - `get_visible_run_status`: reads status and recent log lines from a visible run directory.
 - `list_visible_runs`: lists recent visible runs.
+
+Visible start tools force Codex to `gpt-5.5` / `xhigh` / `service_tier=fast` even if a caller passes weaker values. The Haiku composer uses Claude `haiku` / `low` and a small default budget before Codex starts.
+
+Use these optional arguments:
+
+- `session_context`: compact current-session briefing for the spawned worker. Include the user goal, decisions already made, files touched, verification results, blockers, and any known mistakes to avoid.
+- `resume_session_id`: Codex thread/session id from `get_visible_run_status.thread_id`, `list_visible_runs.thread_id`, or a prior Codex result. Use this when a visible Codex run was cut off or needs continuation.
+- `requires_tool_access`: set `true` for SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging.
+- `compose_with_haiku`: optional on `start_visible_codex_worker`; set `true` when `prompt` is a compact brief rather than a final Codex prompt.
+- `prompt_brief`: use this with `start_visible_haiku_composed_codex_worker`. Keep it short: objective, decisions, constraints, scope, verification, and non-goals.
 
 Use visible tools for:
 
 - codebase-reading passes that should be observable
 - first-mate worker pools
 - long implementation or test-repair runs
+- SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging where Codex must run the same tools a developer would run
 - any user request to see live work
+
+Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation so Opus emits a compact brief instead of the full Codex prompt. Use direct `start_visible_codex_worker` only for tiny prompts or when a final prompt already exists outside Opus output.
 
 Use invisible `codex` / `codex-reply` for quick, low-noise, manager-controlled exchanges where live observation is not needed.
 
@@ -118,15 +137,16 @@ Available built-in Codex agents:
 
 Personal custom Codex agents installed for this bridge:
 
-- `claude-explorer`: read-only, low-cost scouting and context distillation.
+- `claude-explorer`: no-edit, low-cost scouting, Python-backed skill use, and context distillation.
 - `claude-implementer`: bounded implementation under Claude's scope.
-- `claude-reviewer`: read-only correctness/security/regression review.
+- `claude-reviewer`: no-edit correctness/security/regression review.
+- `claude-debugger`: full-tool SSH, live-device, network, serial, and command-heavy debugging after Claude explicitly allows full tool access.
 
 Use subagents for independent, noisy, read-heavy, or parallelizable work. Avoid subagents for tiny edits or where the coordination overhead exceeds the benefit.
 
 ## First Mate Pattern
 
-When a task requires codebase understanding, do not spend Claude tokens reading everything. Start a visible first-mate pool or a read-only Codex root session and tell Codex to map the repo for Claude.
+When a task requires codebase understanding, do not spend Claude tokens reading everything. Start a visible first-mate pool or a no-edit Codex root session and tell Codex to map the repo for Claude.
 
 The bridge bundles a Codex-facing Firstmate skill at `codex-skills/firstmate/SKILL.md`. Install or sync it to `~/.codex/skills/firstmate/SKILL.md` when using this repo locally. The visible first-mate runner also embeds the same role contract so the hierarchy works even before Codex refreshes its skill index.
 
@@ -134,7 +154,9 @@ Default first-mate settings:
 
 - model: `gpt-5.5`
 - reasoning effort: `xhigh`
-- root sandbox: `read-only` for codebase mapping, `workspace-write` only after Claude chooses a scoped implementation path
+- service tier: `fast`
+- process sandbox: full tool access by default so Python skills and external tooling work
+- permission intent: `read-only`/no-edit for codebase mapping, `workspace-write` only after Claude chooses a scoped implementation path, `danger-full-access` or `requires_tool_access: true` for SSH/live-device/tool debugging
 - max worker fan-out: 6 unless the task is clearly smaller
 
 First-mate responsibilities:
@@ -151,9 +173,23 @@ For broad codebase understanding, ask:
 Use the firstmate skill. Claude is the captain; Codex is the first mate. Spawn claude-explorer subagents to map the codebase by subsystem. Do not edit files. Return a compact manager brief with architecture, key files, tests, risk areas, and recommended implementation plan.
 ```
 
+## Session Context and Resume
+
+Do not treat spawned Codex as a blank chat.
+
+Before starting or resuming Codex:
+
+1. Build a compact `session_context` from the live Claude conversation: user goal, decisions, constraints, prior errors, run ids, thread ids, changed files, verification, and open questions.
+2. If context predates the current Claude window or was compacted, invoke `read-past-sessions` or tell Codex to use it immediately.
+3. Pass `session_context` into `start_visible_codex_worker` / `start_visible_first_mate_codex_pool`.
+4. If continuing previous work, pass `resume_session_id` instead of starting a new root run. For Codex this is the `thread_id` shown by `get_visible_run_status` or `list_visible_runs`.
+5. Record resumable ids in `.claude-codex/BRIDGE.md`.
+
+Use a fresh Codex session only for unrelated work or when the old session is polluted.
+
 ## Permission Policy
 
-Default to `read-only` unless Claude is fully confident the work is well-scoped and safe.
+Default the permission intent to `read-only`/no-edit unless Claude is fully confident the work is well-scoped and safe. The actual visible Codex process still has full tool access so Python skills and developer tooling work.
 
 Use `workspace-write` only when all are true:
 
@@ -162,19 +198,19 @@ Use `workspace-write` only when all are true:
 - The task is not destructive, broad, security-sensitive, or data-loss-prone.
 - Parallel writers will not touch the same files.
 
-If not fully confident, use `read-only` and ask Codex to return findings, risks, and questions. Claude decides next.
+If not fully confident, use no-edit intent and ask Codex to return findings, risks, and questions. Claude decides next.
 
-Never use `danger-full-access` unless the user explicitly asks and the environment is controlled.
+Use `danger-full-access` intent only when the user or Claude explicitly authorizes broad/full tool work. This bridge has user authorization to support full-tool Codex debugging; do not cripple Codex with a literal read-only process sandbox, because that breaks Python and skills.
 
-Subagents inherit the parent Codex sandbox unless a custom agent overrides it. Start the root Codex session with the intended maximum permission.
+Subagents inherit the parent Codex process access unless a custom agent overrides it. Start the root Codex session with the intended permission intent. Use `claude-debugger` for full-tool subagent tasks.
 
 ## Delegation Patterns
 
-### Read-Only Scout
+### No-Edit Scout
 
 Use when Claude needs context before deciding.
 
-Start Codex with `sandbox: read-only`, or use `start_visible_first_mate_codex_pool`, and tell it:
+Start Codex with no-edit permission intent, or use `start_visible_first_mate_codex_pool`, and tell it:
 
 ```text
 Spawn claude-explorer subagents for the independent areas below. Wait for all agents, then return a consolidated summary only.
@@ -205,6 +241,26 @@ Scope:
 Do not change architecture. If the scope is ambiguous, stop and ask Claude.
 ```
 
+### Live Debugging, SSH, and Tool Access
+
+Use when Codex must run real developer tools, SSH to a device, inspect network state, use serial tooling, run package managers, or debug hardware/runtime behavior.
+
+Start or resume Codex with `requires_tool_access: true` and include the previous `resume_session_id` when continuing the same run. Tell it:
+
+```text
+Claude explicitly authorizes full tool access for this debugging scope.
+Use claude-debugger for SSH/live-device/tool-heavy work. Start with read-only inspection commands, report commands and results, and ask Claude before destructive actions, service restarts, credential changes, data deletion, firmware flashing, or persistent system changes.
+
+Scope:
+- Target: <host/device/repo>
+- Goal: <observable issue>
+- Allowed commands/tools: <ssh/tests/logs/etc.>
+- Forbidden actions: <destructive or persistent actions>
+- Verification: <what proves the issue is fixed>
+```
+
+If an older Codex thread was created before the full-tool default and still cannot access Python/tools after resume, start a fresh full-tool worker and pass the old thread id in `session_context`.
+
 ### Parallel Implementation
 
 Use only for file-disjoint work.
@@ -219,7 +275,7 @@ If file ownership is not clear, do not parallelize writes.
 
 ### Review Pass
 
-After a non-trivial diff, use a read-only Codex review or Claude's own review.
+After a non-trivial diff, use a no-edit Codex review or Claude's own review.
 
 ```text
 Spawn one claude-reviewer subagent. Review the current diff against Claude's stated architecture and acceptance criteria. Do not edit files. Findings first, ordered by severity, with file references. If no issues, say so and list residual risk.
@@ -227,7 +283,11 @@ Spawn one claude-reviewer subagent. Review the current diff against Claude's sta
 
 ## Token Efficiency
 
+- For non-trivial Codex delegation, Opus writes a compact captain brief and calls `start_visible_haiku_composed_codex_worker`. Haiku/low writes the long worker prompt.
+- Keep the Opus-authored `prompt_brief` to decisions and constraints: goal, scope, permission intent, files/areas, non-goals, verification, and open questions.
+- Do not have Opus restate standard bridge rules, full task templates, or long worker checklists; the bridge and Haiku composer add those.
 - Send Codex distilled briefs, not the whole Claude transcript.
+- Include enough session context that Codex does not repeat already-fixed mistakes. For very long history, instruct Codex to use `read-past-sessions` and return a compact briefing before implementation.
 - Ask Codex to read and summarize the codebase before Claude reads files directly.
 - Use visible first-mate pools for broad understanding instead of loading file after file into Claude.
 - Put noisy exploration, logs, and test repair inside Codex subagents.

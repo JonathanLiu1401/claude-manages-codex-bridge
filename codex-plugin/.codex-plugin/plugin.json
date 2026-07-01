@@ -1,0 +1,21 @@
+{
+  "name": "codex-consults-claude",
+  "version": "0.1.0+codex.20260630200517",
+  "description": "Let Codex consult Claude Code as an advisor for plan checks, sanity checks, architecture, and review through Claude Code's MCP server.",
+  "author": {
+    "name": "Jonathan Liu"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Consults Claude",
+    "shortDescription": "Ask Claude Code for plans, sanity checks, and review.",
+    "longDescription": "Codex Consults Claude connects Codex to Claude Code through the local Claude MCP server. Use it when Codex needs a more expensive second opinion for plan confirmation, confusion resolution, architecture, risky changes, or final review while Codex remains the primary implementation worker.",
+    "developerName": "Jonathan Liu",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": "Ask Claude to sanity-check this plan before coding."
+  },
+  "mcpServers": "./.mcp.json"
+}

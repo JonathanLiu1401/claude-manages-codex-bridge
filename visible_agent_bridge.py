@@ -20,6 +20,43 @@ HOME = Path.home()
 CODEX = Path(r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
 CLAUDE = Path(r"C:\Users\jonny\.local\bin\claude.exe")
 PYTHON = Path(r"C:\Users\jonny\AppData\Local\Python\pythoncore-3.14-64\python.exe")
+READ_PAST_SESSIONS_SKILL = Path(r"C:\Users\jonny\.agents\skills\read-past-sessions")
+
+CODEX_MODEL = "gpt-5.5"
+CODEX_REASONING_EFFORT = "xhigh"
+CODEX_SERVICE_TIER = "fast"
+CODEX_FULL_TOOL_SANDBOX = "danger-full-access"
+CODEX_DEFAULT_SANDBOX = CODEX_FULL_TOOL_SANDBOX
+CLAUDE_MODEL = "opus"
+CLAUDE_EFFORT = "high"
+CLAUDE_MAX_BUDGET_USD = "0.50"
+CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
+CLAUDE_PROMPT_COMPOSER_EFFORT = "low"
+CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.10"
+
+TOOL_ACCESS_KEYWORDS = (
+    "ssh",
+    "scp",
+    "sftp",
+    "rsync",
+    "serial",
+    "uart",
+    "radxa",
+    "router",
+    "ethernet",
+    "network",
+    "ping",
+    "nmap",
+    "live device",
+    "device debugging",
+    "hardware bring-up",
+    "tool access",
+    "external tool",
+    "docker",
+    "pip install",
+    "npm install",
+    "package manager",
+)
 
 
 FIRSTMATE_CONTRACT = """
@@ -29,10 +66,16 @@ The human user is the owner; do not address the owner directly unless Claude exp
 
 Address Claude as "captain" at least once in every response. Keep the address concise and professional.
 
+Runtime requirement: use Codex gpt-5.5, xhigh reasoning, and service_tier=fast for root and subagent work in this bridge.
+
+Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief.
+
+Tool-access requirement: this bridge gives Codex workers full process/tool access so Python skills, read-past-sessions, SSH, and external CLIs work. Treat Claude's requested sandbox as permission intent. If intent is read-only/no-edit, do not modify files or external state even though tools are available.
+
 Prime directives:
 - Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, scoped implementation, verification, review, or recovery.
 - Keep Claude's context compact. Return decisions, evidence, changed files, verification, blockers, and questions instead of raw transcripts or long excerpts.
-- Never change files unless Claude granted a write-capable sandbox and supplied a bounded scope.
+- Never change files unless Claude granted write permission and supplied a bounded scope.
 - Never use broad, destructive, or security-sensitive actions without stopping for Claude's approval.
 - Preserve user changes. Inspect git status before edits when writes are allowed, and do not overwrite unrelated work.
 - Report outcomes faithfully. If work failed or verification is incomplete, say so plainly with evidence.
@@ -43,13 +86,16 @@ Roles:
 - Codex agents own scoped exploration, implementation, verification, and review tasks.
 
 Prefer these agents when available:
-- claude-explorer: read-only codebase scouting and context distillation.
+- claude-explorer: no-edit codebase scouting, Python/skill use, and context distillation.
 - claude-implementer: bounded implementation in assigned files or areas.
 - claude-reviewer: read-only correctness, security, regression, and diff review.
+- claude-debugger: full-tool SSH, device, network, and command-heavy debugging when Claude explicitly allows full tool access.
 
 Keep fan-out bounded to Claude's requested worker count, or at most 6 workers by default. Do not spawn recursive subagent trees. For parallel write work, assign file-disjoint scopes. If ownership is unclear, stop and ask Claude rather than running parallel writers.
 
 For non-trivial repo work, create or update .claude-codex/BRIDGE.md with the goal, Claude decisions, worker ledger, changed files, open questions, and verification.
+
+Record resumable Codex thread ids and Claude session ids in .claude-codex/BRIDGE.md whenever continuation may matter.
 
 Return compactly with: Outcome, Workers, Changed files, Verification, Risks, and Questions.
 """.strip()
@@ -125,8 +171,112 @@ def _slug(value: str, fallback: str = "agent") -> str:
     return value or fallback
 
 
+def _needs_full_tool_access(value: str) -> bool:
+    lower = value.lower()
+    return any(keyword in lower for keyword in TOOL_ACCESS_KEYWORDS)
+
+
+def _codex_permission_contract(requested_sandbox: str, effective_sandbox: str) -> str:
+    requested = (requested_sandbox or "read-only").strip()
+    if requested == "read-only":
+        intent = "NO-EDIT inspection. You may run Python, skills, search tools, and safe read-only commands, but you must not modify files or external state."
+    elif requested == "workspace-write":
+        intent = "SCOPED workspace edits only. Change files only inside Claude's stated scope, preserve unrelated user work, and ask Claude before expanding scope."
+    elif requested == "danger-full-access":
+        intent = "FULL-TOOL debugging or implementation. Start with safe inspection, report commands and results, and ask Claude before destructive, persistent, credential, service, firmware, or data-loss actions."
+    else:
+        intent = f"Custom intent `{requested}`. Follow Claude's written scope exactly and ask before acting outside it."
+    return textwrap.dedent(f"""
+    # Codex Permission Contract
+
+    Actual process sandbox: {effective_sandbox}
+    Claude-requested permission intent: {requested}
+
+    {intent}
+
+    The full process sandbox exists so Python-based skills, read-past-sessions, SSH, external CLIs, and developer tooling work. It is not blanket permission to edit files or mutate external systems.
+    """).strip()
+
+
+def _haiku_codex_prompt_composer_prompt(
+    brief: str,
+    cwd: str,
+    title: str,
+    requested_sandbox: str,
+    session_context: str,
+    resume_session_id: str,
+    requires_tool_access: bool,
+) -> str:
+    context = session_context.strip() or "None supplied."
+    return textwrap.dedent(f"""
+    You are Claude Haiku acting as a cheap prompt composer for a Claude Opus -> Codex bridge.
+
+    Your job is ONLY to turn the compact captain brief into a clear Codex worker prompt.
+    Do not make architectural decisions, choose a different plan, ask questions, read files, run tools, or add broad new scope.
+    Preserve Claude's decisions and constraints exactly.
+
+    Output only the final Codex prompt in markdown. Do not wrap it in code fences.
+
+    The Codex prompt must include, in this order:
+    1. Objective and success criteria.
+    2. Session context summary and any previous run/thread ids.
+    3. Permission intent and tool-access boundaries.
+    4. Files/areas to inspect or edit, if supplied.
+    5. Step-by-step task instructions.
+    6. Verification commands or checks.
+    7. Required final response format for Codex.
+
+    Keep the prompt complete enough that Codex does not need Opus to restate it, but avoid filler and raw transcript.
+
+    Runtime facts:
+    - Title: {title}
+    - CWD: {cwd}
+    - Requested permission intent: {requested_sandbox}
+    - Requires full tool/debug access: {requires_tool_access}
+    - Resume session/thread id: {resume_session_id or "none"}
+    - Codex runtime: gpt-5.5, xhigh reasoning, service_tier=fast.
+
+    Caller-provided session context:
+    {context}
+
+    Compact captain brief to expand:
+    {brief}
+    """).strip()
+
+
 def _ps(value: str | Path) -> str:
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def _with_session_context_bootstrap(prompt: str, cwd: str, agent_role: str, session_context: str = "") -> str:
+    supplied_context = session_context.strip() or (
+        "None supplied by the caller. Reconstruct context before acting."
+    )
+    sessions_script = READ_PAST_SESSIONS_SKILL / "scripts" / "sessions.py"
+    project_hint = Path(cwd).name or "current-project"
+    return textwrap.dedent(f"""
+    # Session Context Bootstrap
+
+    You are starting as a spawned {agent_role}, not a blank chat. Before acting:
+
+    1. Use the `read-past-sessions` skill if it is available.
+    2. If the skill is not available, run the bundled engine directly:
+       `python "{sessions_script}" list "{project_hint}" --limit 5`
+       `python "{sessions_script}" show <session-id> --mode briefing --include-subagents --max-chars 120000`
+    3. Prefer the newest relevant session for this cwd/task. If a required decision is missing from the briefing, rerun `show` with `--mode full --include-subagents --max-chars 200000`.
+    4. Treat the caller-provided context below as authoritative. Use recovered session context to avoid rederiving prior decisions or repeating already-fixed mistakes.
+    5. Do not paste full transcripts back unless asked. Return compact evidence, decisions, files, verification, blockers, and questions.
+
+    CWD: {cwd}
+
+    ## Caller-Provided Session Context
+
+    {supplied_context}
+
+    ## Assigned Task
+
+    {prompt.strip()}
+    """).strip()
 
 
 def _run_root(cwd: str | None) -> Path:
@@ -163,21 +313,45 @@ def _launch(script_path: Path) -> int:
     return int(proc.pid)
 
 
-def _codex_runner(run_dir: Path, cwd: str, sandbox: str, approval_policy: str, model: str, reasoning_effort: str) -> str:
+def _codex_runner(
+    run_dir: Path,
+    cwd: str,
+    sandbox: str,
+    approval_policy: str,
+    model: str,
+    reasoning_effort: str,
+    service_tier: str,
+    resume_session_id: str = "",
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+) -> str:
     return f"""
 $ErrorActionPreference = 'Continue'
 $RunDir = {_ps(run_dir)}
 $PromptPath = Join-Path $RunDir 'prompt.md'
+$ComposerPromptPath = Join-Path $RunDir 'composer_prompt.md'
+$ComposerRawLog = Join-Path $RunDir 'composer_events.jsonl'
+$ComposedPromptPath = Join-Path $RunDir 'composed_prompt.md'
+$CodexPreludePath = Join-Path $RunDir 'codex_prelude.md'
 $RawLog = Join-Path $RunDir 'events.jsonl'
 $DisplayLog = Join-Path $RunDir 'display.log'
 $StatusPath = Join-Path $RunDir 'status.json'
 $ThreadPath = Join-Path $RunDir 'thread_id.txt'
 $Codex = {_ps(CODEX)}
+$Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
 $Sandbox = {_ps(sandbox)}
 $ApprovalPolicy = {_ps(approval_policy)}
 $Model = {_ps(model)}
 $ReasoningEffort = {_ps(reasoning_effort)}
+$ServiceTier = {_ps(service_tier)}
+$ResumeSessionId = {_ps(resume_session_id)}
+$ComposeWithHaiku = {"$true" if compose_with_haiku else "$false"}
+$ComposerModel = {_ps(composer_model)}
+$ComposerEffort = {_ps(composer_effort)}
+$ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
 # Force UTF-8 so Codex's UTF-8 stdout/stdin is decoded correctly (avoids mojibake like the
 # right-single-quote turning into "ΓÇÖ" when PowerShell falls back to the OEM code page).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -232,6 +406,10 @@ function Show-JsonEvent($obj) {{
   }}
   if ($obj.type -eq 'item.completed') {{
     $item = $obj.item
+    if ($item.type -eq 'error') {{
+      Log-Line "Nonfatal Codex event error: $($item.message)" 'DarkYellow'
+      return
+    }}
     if ($item.type -eq 'agent_message' -and $item.text) {{
       Log-Line 'Agent message:' 'Green'
       $item.text | Write-Raw
@@ -251,18 +429,103 @@ Clear-Host
 Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
-Log-Line "Sandbox: $Sandbox | Approval: $ApprovalPolicy | Model: $Model | Reasoning: $ReasoningEffort" 'Cyan'
-Log-Line 'Prompt follows:' 'Magenta'
-Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+Log-Line "Sandbox: $Sandbox | Approval: $ApprovalPolicy | Model: $Model | Reasoning: $ReasoningEffort | Service tier: $ServiceTier" 'Cyan'
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ Log-Line "Resuming Codex session/thread: $ResumeSessionId" 'Cyan' }}
+$CodexPromptPath = $PromptPath
+if ($ComposeWithHaiku) {{
+  Log-Line "Haiku prompt composer enabled. Model: $ComposerModel | Effort: $ComposerEffort | Max budget USD: $ComposerMaxBudgetUsd" 'Magenta'
+  Log-Line 'Compact captain brief follows:' 'Magenta'
+  Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+  Log-Line 'Starting Haiku prompt composer. Raw stream JSON is saved to composer_events.jsonl.' 'Magenta'
+
+  $composerArgs = @('-p','--safe-mode','--no-session-persistence','--prompt-suggestions','false','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$ComposerMaxBudgetUsd)
+  if ($ComposerModel -and $ComposerModel -ne '') {{ $composerArgs += @('--model',$ComposerModel) }}
+  if ($ComposerEffort -and $ComposerEffort -ne '') {{ $composerArgs += @('--effort',$ComposerEffort) }}
+
+  $assistantChunks = New-Object System.Collections.ArrayList
+  $resultText = ''
+  $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
+  $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
+    $line = [string]$_
+    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    try {{
+      $obj = $line | ConvertFrom-Json -ErrorAction Stop
+      if ($obj.type -eq 'assistant' -and $obj.message) {{
+        foreach ($c in $obj.message.content) {{
+          if ($c.type -eq 'text' -and $c.text) {{ [void]$assistantChunks.Add([string]$c.text) }}
+        }}
+        return
+      }}
+      if ($obj.type -eq 'result') {{
+        Log-Line "Haiku composer result: subtype=$($obj.subtype) cost=$($obj.total_cost_usd) duration_ms=$($obj.duration_ms)" 'Green'
+        if ($obj.result) {{ $resultText = [string]$obj.result }}
+        return
+      }}
+      if ($obj.type -eq 'system') {{
+        if ($obj.session_id) {{ Log-Line "Haiku composer session: $($obj.session_id)" 'Cyan' }}
+        Log-Line "Haiku composer system: $($obj.subtype)" 'DarkCyan'
+        return
+      }}
+    }} catch {{
+      Log-Line $line 'Gray'
+    }}
+  }}
+  $composerExitCode = $LASTEXITCODE
+  if ($composerExitCode -ne 0) {{
+    Set-Status "failed:haiku-composer:$composerExitCode"
+    Log-Line "Haiku prompt composer exited with code $composerExitCode" 'Red'
+    Stop-RunDescendants -RootPid $PID
+    Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+    Start-Sleep -Seconds 5
+    exit
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $resultText = (($assistantChunks | ForEach-Object {{ [string]$_ }}) -join "`n")
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    Set-Status 'failed:haiku-composer-empty'
+    Log-Line 'Haiku prompt composer produced an empty Codex prompt.' 'Red'
+    Stop-RunDescendants -RootPid $PID
+    Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+    Start-Sleep -Seconds 5
+    exit
+  }}
+  $prelude = ''
+  if (Test-Path -LiteralPath $CodexPreludePath) {{ $prelude = Get-Content -LiteralPath $CodexPreludePath -Raw }}
+  $finalPrompt = ($prelude.TrimEnd() + "`n`n## Haiku-Composed Worker Brief`n`n" + $resultText.Trim())
+  $finalPrompt | Set-Content -LiteralPath $ComposedPromptPath -Encoding UTF8
+  $CodexPromptPath = $ComposedPromptPath
+  Log-Line 'Composed Codex prompt follows:' 'Magenta'
+  Get-Content -LiteralPath $CodexPromptPath -Raw | Write-Raw
+}} else {{
+  Log-Line 'Prompt follows:' 'Magenta'
+  Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+}}
 Log-Line 'Starting Codex. Raw JSONL is saved to events.jsonl.' 'Magenta'
 
-$argsList = @('exec','--json','-C',$Cwd,'--sandbox',$Sandbox,'-c',"approval_policy=`"$ApprovalPolicy`"")
+$argsList = @('exec')
+$UseSandboxBypass = $Sandbox -eq 'danger-full-access'
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{
+  $argsList += @('resume','--json','-c',"approval_policy=`"$ApprovalPolicy`"")
+  if ($UseSandboxBypass) {{ $argsList += '--dangerously-bypass-approvals-and-sandbox' }}
+}} else {{
+  $argsList += @('--json','-C',$Cwd,'-c',"approval_policy=`"$ApprovalPolicy`"")
+  if ($UseSandboxBypass) {{
+    $argsList += '--dangerously-bypass-approvals-and-sandbox'
+  }} else {{
+    $argsList += @('--sandbox',$Sandbox)
+  }}
+}}
 if ($Model -and $Model -ne '') {{ $argsList += @('-m',$Model) }}
 if ($ReasoningEffort -and $ReasoningEffort -ne '') {{ $argsList += @('-c', "model_reasoning_effort=`"$ReasoningEffort`"") }}
+if ($ServiceTier -and $ServiceTier -ne '') {{ $argsList += @('-c', "service_tier=`"$ServiceTier`"") }}
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ $argsList += $ResumeSessionId }}
 $argsList += '-'
 
-$prompt = Get-Content -LiteralPath $PromptPath -Raw
-$prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
+$prompt = Get-Content -LiteralPath $CodexPromptPath -Raw
+Push-Location $Cwd
+try {{
+  $prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
   $line = [string]$_
   Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
   try {{
@@ -271,6 +534,9 @@ $prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
   }} catch {{
     Log-Line $line 'Gray'
   }}
+  }}
+}} finally {{
+  Pop-Location
 }}
 
 $exitCode = $LASTEXITCODE
@@ -286,11 +552,20 @@ try {{
   Log-Line "Git summary unavailable: $($_.Exception.Message)" 'DarkGray'
 }}
 Stop-RunDescendants -RootPid $PID
-Log-Line 'Window left open for inspection. Agents for this run have been closed.' 'Magenta'
+Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+Start-Sleep -Seconds 5
+exit
 """
 
 
-def _claude_runner(run_dir: Path, cwd: str, model: str, effort: str) -> str:
+def _claude_runner(
+    run_dir: Path,
+    cwd: str,
+    model: str,
+    effort: str,
+    max_budget_usd: str,
+    resume_session_id: str = "",
+) -> str:
     return f"""
 $ErrorActionPreference = 'Continue'
 $RunDir = {_ps(run_dir)}
@@ -298,10 +573,13 @@ $PromptPath = Join-Path $RunDir 'prompt.md'
 $RawLog = Join-Path $RunDir 'events.jsonl'
 $DisplayLog = Join-Path $RunDir 'display.log'
 $StatusPath = Join-Path $RunDir 'status.json'
+$SessionPath = Join-Path $RunDir 'session_id.txt'
 $Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
 $Model = {_ps(model)}
 $Effort = {_ps(effort)}
+$MaxBudgetUsd = {_ps(max_budget_usd)}
+$ResumeSessionId = {_ps(resume_session_id)}
 # Force UTF-8 so the child process stdout/stdin is decoded correctly (avoids OEM-codepage mojibake).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -328,6 +606,9 @@ function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   Write-Host $line -ForegroundColor $Color
 }}
 function Show-ClaudeEvent($obj) {{
+  if ($obj.session_id) {{
+    $obj.session_id | Set-Content -LiteralPath $SessionPath -Encoding UTF8
+  }}
   if ($obj.type -eq 'assistant' -and $obj.message) {{
     foreach ($c in $obj.message.content) {{
       if ($c.type -eq 'text') {{ $c.text | Write-Raw }}
@@ -336,10 +617,18 @@ function Show-ClaudeEvent($obj) {{
   }}
   if ($obj.type -eq 'result') {{
     Log-Line "Claude result: subtype=$($obj.subtype) cost=$($obj.total_cost_usd) duration_ms=$($obj.duration_ms)" 'Green'
-    if ($obj.result) {{ $obj.result | Write-Raw }}
+    if ($obj.subtype -eq 'error_max_budget_usd') {{ $script:ClaudeBudgetCapped = $true }}
+    if ($obj.result) {{
+      $script:ClaudeHadResult = $true
+      $obj.result | Write-Raw
+    }}
     return
   }}
-  if ($obj.type -eq 'system') {{ Log-Line "Claude system: $($obj.subtype)" 'DarkCyan'; return }}
+  if ($obj.type -eq 'system') {{
+    if ($obj.session_id) {{ Log-Line "Claude session: $($obj.session_id)" 'Cyan' }}
+    Log-Line "Claude system: $($obj.subtype)" 'DarkCyan'
+    return
+  }}
   if ($obj.type -eq 'tool_use' -or $obj.type -eq 'tool_result') {{ Log-Line "Claude tool event: $($obj.type)" 'Yellow'; return }}
 }}
 
@@ -348,12 +637,16 @@ Clear-Host
 Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
-Log-Line "Model: $Model | Effort: $Effort | Permission mode: plan" 'Cyan'
+Log-Line "Model: $Model | Effort: $Effort | Max budget USD: $MaxBudgetUsd | Permission mode: plan | Session persistence enabled for resume" 'Cyan'
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ Log-Line "Resuming Claude session: $ResumeSessionId" 'Cyan' }}
 Log-Line 'Prompt follows:' 'Magenta'
 Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
 Log-Line 'Starting Claude advisor. Raw stream JSON is saved to events.jsonl.' 'Magenta'
 
-$argsList = @('-p','--output-format','stream-json','--permission-mode','plan','--add-dir',$Cwd)
+$script:ClaudeHadResult = $false
+$script:ClaudeBudgetCapped = $false
+$argsList = @('-p','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$MaxBudgetUsd,'--add-dir',$Cwd)
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ $argsList += @('--resume',$ResumeSessionId) }}
 if ($Model -and $Model -ne '') {{ $argsList += @('--model',$Model) }}
 if ($Effort -and $Effort -ne '') {{ $argsList += @('--effort',$Effort) }}
 
@@ -369,10 +662,18 @@ $prompt | & $Claude @argsList 2>&1 | ForEach-Object {{
   }}
 }}
 $exitCode = $LASTEXITCODE
-if ($exitCode -eq 0) {{ Set-Status 'completed' }} else {{ Set-Status "failed:$exitCode" }}
+if ($exitCode -eq 0) {{
+  Set-Status 'completed'
+}} elseif ($script:ClaudeBudgetCapped -and $script:ClaudeHadResult) {{
+  Set-Status 'completed_budget_capped'
+}} else {{
+  Set-Status "failed:$exitCode"
+}}
 Log-Line "Claude exited with code $exitCode" $(if ($exitCode -eq 0) {{ 'Green' }} else {{ 'Red' }})
 Stop-RunDescendants -RootPid $PID
-Log-Line 'Window left open for inspection. Agents for this run have been closed.' 'Magenta'
+Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+Start-Sleep -Seconds 5
+exit
 """
 
 
@@ -381,21 +682,89 @@ def start_visible_codex_worker(
     prompt: str,
     cwd: str,
     title: str = "Codex worker",
-    sandbox: str = "read-only",
+    sandbox: str = CODEX_DEFAULT_SANDBOX,
     approval_policy: str = "never",
-    model: str = "gpt-5.5",
-    reasoning_effort: str = "xhigh",
+    model: str = CODEX_MODEL,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
 ) -> dict[str, Any]:
     """Launch a visible Codex exec worker in a separate PowerShell window and save logs."""
-    run_dir = _make_run(cwd, "codex", title, prompt, {
+    effective_model = CODEX_MODEL
+    effective_reasoning = CODEX_REASONING_EFFORT
+    effective_service_tier = CODEX_SERVICE_TIER
+    auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
+    effective_sandbox = CODEX_FULL_TOOL_SANDBOX
+    prompt_with_permissions = "\n\n".join([
+        _codex_permission_contract(sandbox, effective_sandbox),
+        prompt,
+    ])
+    if compose_with_haiku:
+        effective_prompt = prompt.strip()
+    else:
+        effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Codex worker", session_context)
+    run_dir = _make_run(cwd, "codex-resume" if resume_session_id else "codex", title, effective_prompt, {
         "agent": "codex",
-        "sandbox": sandbox,
+        "sandbox": effective_sandbox,
+        "requested_sandbox": sandbox,
         "approval_policy": approval_policy,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
+        "model": effective_model,
+        "reasoning_effort": effective_reasoning,
+        "service_tier": effective_service_tier,
+        "requested_model": model,
+        "requested_reasoning_effort": reasoning_effort,
+        "resume_session_id": resume_session_id or None,
+        "session_context_supplied": bool(session_context.strip()),
+        "requires_tool_access": requires_tool_access,
+        "auto_full_tool_access": auto_full_tool_access,
+        "sandbox_bypass_enabled": True,
+        "tool_access_default": "full-process-access",
+        "compose_with_haiku": compose_with_haiku,
+        "prompt_composer_model": composer_model if compose_with_haiku else None,
+        "prompt_composer_effort": composer_effort if compose_with_haiku else None,
+        "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
     })
+    if compose_with_haiku:
+        composer_prompt = _haiku_codex_prompt_composer_prompt(
+            prompt,
+            cwd,
+            title,
+            sandbox,
+            session_context,
+            resume_session_id,
+            requires_tool_access or auto_full_tool_access,
+        )
+        (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
+        codex_prelude = _with_session_context_bootstrap(
+            _codex_permission_contract(sandbox, effective_sandbox),
+            cwd,
+            "Codex worker",
+            session_context,
+        )
+        (run_dir / "codex_prelude.md").write_text(codex_prelude, encoding="utf-8")
     script = run_dir / "run.ps1"
-    script.write_text(_codex_runner(run_dir, str(Path(cwd).resolve()), sandbox, approval_policy, model, reasoning_effort), encoding="utf-8")
+    script.write_text(
+        _codex_runner(
+            run_dir,
+            str(Path(cwd).resolve()),
+            effective_sandbox,
+            approval_policy,
+            effective_model,
+            effective_reasoning,
+            effective_service_tier,
+            resume_session_id,
+            compose_with_haiku,
+            composer_model,
+            composer_effort,
+            composer_max_budget_usd,
+        ),
+        encoding="utf-8",
+    )
     pid = _launch(script)
     return {
         "run_id": run_dir.name,
@@ -405,8 +774,39 @@ def start_visible_codex_worker(
         "display_log": str(run_dir / "display.log"),
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
-        "note": "A visible PowerShell window was launched. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
+        "note": f"A visible PowerShell window was launched. Codex is forced to gpt-5.5/xhigh/service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
+
+
+@mcp.tool()
+def start_visible_haiku_composed_codex_worker(
+    prompt_brief: str,
+    cwd: str,
+    title: str = "Codex worker",
+    sandbox: str = "read-only",
+    approval_policy: str = "never",
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+) -> dict[str, Any]:
+    """Launch a visible Codex worker from a compact Claude brief expanded by Claude Haiku."""
+    return start_visible_codex_worker(
+        prompt=prompt_brief,
+        cwd=cwd,
+        title=title,
+        sandbox=sandbox,
+        approval_policy=approval_policy,
+        model=CODEX_MODEL,
+        reasoning_effort=CODEX_REASONING_EFFORT,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=requires_tool_access,
+        compose_with_haiku=True,
+        composer_model=CLAUDE_PROMPT_COMPOSER_MODEL,
+        composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
+        composer_max_budget_usd=composer_max_budget_usd,
+    )
 
 
 @mcp.tool()
@@ -417,12 +817,23 @@ def start_visible_first_mate_codex_pool(
     implementation_items: list[str] | None = None,
     sandbox: str = "read-only",
     max_workers: int = 6,
-    model: str = "gpt-5.5",
-    reasoning_effort: str = "xhigh",
+    model: str = CODEX_MODEL,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
 ) -> dict[str, Any]:
     """Launch a visible Codex root session instructed to act as first mate and manage parallel Codex subagents."""
     scout_areas = scout_areas or []
     implementation_items = implementation_items or []
+    auto_full_tool_access = _needs_full_tool_access("\n".join([goal, session_context, *scout_areas, *implementation_items]))
+    effective_root_sandbox = CODEX_FULL_TOOL_SANDBOX
+    if sandbox == "read-only" and not (requires_tool_access or auto_full_tool_access):
+        tool_access_instructions = "- Full process/tool access is enabled so Python skills, read-past-sessions, rg, and other developer tools work. Claude's permission intent is no-edit scouting; do not modify files or external state."
+    elif requires_tool_access or auto_full_tool_access or sandbox == "danger-full-access":
+        tool_access_instructions = "- Full tool, SSH, network, and live-device access is required for this run. Use claude-debugger or inherited full-access workers for command-heavy debugging; do not dispatch no-tool/no-edit scouts for tasks that need those tools."
+    else:
+        tool_access_instructions = "- Full process/tool access is enabled. Stay within Claude's scoped write intent and ask before expanding scope."
     prompt = f"""
 Use the `firstmate` skill if it is available, then follow this embedded Firstmate contract:
 
@@ -434,6 +845,7 @@ Goal:
 Run-specific limits:
 - Keep fan-out bounded to at most {max_workers} workers.
 - Hidden model reasoning is not visible to the user; expose useful progress through concise summaries and logs.
+{tool_access_instructions}
 
 Scout areas:
 {chr(10).join(f"- {x}" for x in scout_areas) if scout_areas else "- Map the codebase at a high level, identify relevant modules, tests, and risk areas."}
@@ -441,8 +853,9 @@ Scout areas:
 Implementation items:
 {chr(10).join(f"- {x}" for x in implementation_items) if implementation_items else "- None unless Claude provided explicit scope."}
 
-Sandbox for this root run: {sandbox}
-If sandbox is read-only, do not attempt implementation. Scout and summarize.
+Actual process sandbox for this root run: {effective_root_sandbox}
+Claude-requested permission intent: {sandbox}
+If the intent is read-only/no-edit, do not attempt implementation. Scout and summarize.
 """
     return start_visible_codex_worker(
         prompt=textwrap.dedent(prompt).strip(),
@@ -452,6 +865,9 @@ If sandbox is read-only, do not attempt implementation. Scout and summarize.
         approval_policy="never",
         model=model,
         reasoning_effort=reasoning_effort,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=requires_tool_access or auto_full_tool_access,
     )
 
 
@@ -460,18 +876,53 @@ def start_visible_claude_advisor(
     prompt: str,
     cwd: str,
     title: str = "Claude advisor",
-    model: str = "sonnet",
-    effort: str = "high",
+    model: str = CLAUDE_MODEL,
+    effort: str = CLAUDE_EFFORT,
+    max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
+    session_context: str = "",
+    resume_session_id: str = "",
 ) -> dict[str, Any]:
-    """Launch a visible Claude Code advisor run in a separate PowerShell window and save stream logs."""
-    run_dir = _make_run(cwd, "claude", title, prompt, {
+    """Launch a visible, budget-capped, one-shot Claude Code advisor run in a separate PowerShell window."""
+    effective_model = CLAUDE_MODEL
+    effective_effort = CLAUDE_EFFORT
+    effective_budget = max_budget_usd or CLAUDE_MAX_BUDGET_USD
+    bounded_prompt = f"""
+You are Claude Code acting as an expensive, one-shot advisor to Codex.
+
+Budget rules:
+- Be concise. Target under 500 words unless critical details require more.
+- Do not start an extended back-and-forth.
+- Do not perform broad codebase reading. Rely on the distilled context Codex provided.
+- Ask at most 3 clarifying questions only if no safe recommendation is possible.
+- Prefer a direct decision, risks, and specific instructions for Codex.
+
+Advisor request:
+{prompt}
+""".strip()
+    effective_prompt = _with_session_context_bootstrap(bounded_prompt, cwd, "Claude advisor", session_context)
+    run_dir = _make_run(cwd, "claude-resume" if resume_session_id else "claude", title, effective_prompt, {
         "agent": "claude",
-        "model": model,
-        "effort": effort,
+        "model": effective_model,
+        "effort": effective_effort,
+        "max_budget_usd": effective_budget,
+        "requested_model": model,
+        "requested_effort": effort,
+        "resume_session_id": resume_session_id or None,
+        "session_context_supplied": bool(session_context.strip()),
         "permission_mode": "plan",
     })
     script = run_dir / "run.ps1"
-    script.write_text(_claude_runner(run_dir, str(Path(cwd).resolve()), model, effort), encoding="utf-8")
+    script.write_text(
+        _claude_runner(
+            run_dir,
+            str(Path(cwd).resolve()),
+            effective_model,
+            effective_effort,
+            effective_budget,
+            resume_session_id,
+        ),
+        encoding="utf-8",
+    )
     pid = _launch(script)
     return {
         "run_id": run_dir.name,
@@ -481,7 +932,7 @@ def start_visible_claude_advisor(
         "display_log": str(run_dir / "display.log"),
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
-        "note": "A visible PowerShell window was launched for Claude advisor output. Hidden model reasoning is not exposed.",
+        "note": "A visible PowerShell window was launched for Claude advisor output. Claude is forced to opus/high. Hidden model reasoning is not exposed.",
     }
 
 
@@ -492,18 +943,20 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     status_path = path / "status.json"
     display_path = path / "display.log"
     thread_path = path / "thread_id.txt"
+    session_path = path / "session_id.txt"
     metadata_path = path / "metadata.json"
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
     lines: list[str] = []
     if display_path.exists():
-        all_lines = display_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        all_lines = display_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
         lines = all_lines[-max(1, min(tail_lines, 500)):]
     return {
         "run_dir": str(path),
         "status": status,
         "metadata": metadata,
         "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
+        "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
         "tail": "\n".join(lines),
     }
 
@@ -519,11 +972,15 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
     for run in runs:
         status_path = run / "status.json"
         metadata_path = run / "metadata.json"
+        thread_path = run / "thread_id.txt"
+        session_path = run / "session_id.txt"
         result.append({
             "run_id": run.name,
             "run_dir": str(run),
             "status": json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"},
             "metadata": json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {},
+            "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
+            "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
         })
     return result
 

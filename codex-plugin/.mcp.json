@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent-visibility": {
+      "command": "C:\\Users\\jonny\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "args": [
+        "C:\\Users\\jonny\\.agent-bridge\\visible_agent_bridge.py"
+      ],
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 600,
+      "enabled_tools": [
+        "start_visible_claude_advisor",
+        "get_visible_run_status",
+        "list_visible_runs"
+      ]
+    }
+  }
+}
