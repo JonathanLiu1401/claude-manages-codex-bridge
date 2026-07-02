@@ -12,6 +12,8 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch Codex.
 - `start_visible_first_mate_codex_pool` - launch a visible Codex root coordinator that spawns/manages subagents.
 - `steer_visible_codex_run` - queue a captain steering note into an active visible Codex run, or launch a visible resume run on the same thread if the window already closed.
+- `request_captain_help` - let a stuck visible Codex worker ask the same Claude captain for feedback through the run mailbox.
+- `list_captain_help_requests` / `respond_to_captain_help_request` - let Claude inspect and answer worker help requests, or escalate to the user before steering the same run.
 - `start_visible_claude_advisor` - launch a visible Claude Code advisor run.
 - `get_visible_run_status` / `list_visible_runs` - read status and recent log lines from a run directory.
 
@@ -24,6 +26,7 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
 - Claude can steer visible Codex runs with `steer_visible_codex_run`; active windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
+- Stuck visible Codex workers can call back to the same Claude captain with `request_captain_help`; Claude answers with `respond_to_captain_help_request` or asks the user first when owner judgment is required.
 - Visible Codex workers set `NODE_PATH` and `PLAYWRIGHT_BROWSERS_PATH` so Playwright MCP and Node-based Playwright tests can run from delegated Codex sessions.
 
 ## Firstmate skill
@@ -144,11 +147,16 @@ This copy includes fixes over the original bridge, found while testing against C
    `steer_done/` directories. Claude can call `steer_visible_codex_run` to queue captain instructions into an
    active run; the same visible window consumes them on the recorded Codex thread after the current turn. If the
    window already closed, the tool starts a visible `codex resume` run against the same `thread_id`. Steering can
-   also carry an updated `sandbox` permission intent when Claude moves a run from scouting to scoped writes.
+    also carry an updated `sandbox` permission intent when Claude moves a run from scouting to scoped writes.
 
 9. **Visible launcher stayed stuck at `created`.** The launcher used PowerShell `-NoExit`, which could leave a
-   visible shell alive while the run directory stayed locked or never advanced cleanly from the caller's view. It
-   now launches with `-NoProfile` and lets the script's own short close delay control visibility and cleanup.
+    visible shell alive while the run directory stayed locked or never advanced cleanly from the caller's view. It
+    now launches with `-NoProfile` and lets the script's own short close delay control visibility and cleanup.
+
+10. **Stuck workers had no same-captain callback.** Visible Codex prompts now include a per-run captain-help
+    mailbox. A stuck worker calls `request_captain_help` and stops; Claude polls the request, can ask the user if
+    the decision requires owner judgment, then `respond_to_captain_help_request` queues steering back to the same
+    run/thread.
 
 ## E2E verification
 
@@ -192,6 +200,9 @@ visible-agent tools:
       "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_haiku_composed_codex_worker",
       "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_first_mate_codex_pool",
       "mcp__plugin_claude-manages-codex_agent-visibility__steer_visible_codex_run",
+      "mcp__plugin_claude-manages-codex_agent-visibility__request_captain_help",
+      "mcp__plugin_claude-manages-codex_agent-visibility__list_captain_help_requests",
+      "mcp__plugin_claude-manages-codex_agent-visibility__respond_to_captain_help_request",
       "mcp__plugin_claude-manages-codex_agent-visibility__get_visible_run_status",
       "mcp__plugin_claude-manages-codex_agent-visibility__list_visible_runs"
     ]

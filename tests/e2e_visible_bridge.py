@@ -103,6 +103,47 @@ def _assert_model_policy() -> None:
             os.environ[bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV] = saved_until
 
 
+def case_captain_help_mailbox() -> dict[str, Any]:
+    run_dir = bridge._make_run(
+        str(ROOT),
+        "codex",
+        "E2E captain help mailbox",
+        "Self-contained mailbox test. Do not launch Codex.",
+        {
+            "agent": "codex",
+            "cwd": str(ROOT),
+            "requested_sandbox": "read-only",
+            "approval_policy": "never",
+        },
+    )
+    request = bridge.request_captain_help(
+        str(run_dir),
+        question="Need captain decision between option A and option B.",
+        context="Observed facts are self-contained for this mailbox test.",
+        urgency="blocked",
+        recommended_next="Pick option A for this E2E.",
+    )
+    assert request["ok"], request
+    status = bridge.get_visible_run_status(str(run_dir), tail_lines=5)
+    assert status["pending_help_requests"] == 1, status
+
+    response = bridge.respond_to_captain_help_request(
+        str(run_dir),
+        request["request_id"],
+        response="Captain decision: use option A. Continue and report E2E_CAPTAIN_HELP_OK.",
+        session_context=SESSION_CONTEXT,
+        sandbox="read-only",
+        launch_if_closed=False,
+    )
+    assert response["ok"], response
+    assert response["steer"]["mode"] in {"queued", "queued_no_active_runner"}, response
+    status = bridge.get_visible_run_status(str(run_dir), tail_lines=5)
+    assert status["pending_help_requests"] == 0, status
+    assert status["answered_help_requests"] == 1, status
+    assert status["pending_steers"] == 1, status
+    return {"run_dir": str(run_dir), "request_id": request["request_id"]}
+
+
 def _wait_completed(run_dir: Path, markers: list[str], timeout_s: int = 300) -> str:
     display = run_dir / "display.log"
     deadline = time.time() + timeout_s
@@ -304,31 +345,35 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
-    print("[0/6] advisor model policy", flush=True)
+    print("[0/7] advisor model policy", flush=True)
     _assert_model_policy()
 
-    print("[1/6] visible worker + queued steer", flush=True)
+    print("[1/7] captain help mailbox", flush=True)
+    results["captain_help"] = case_captain_help_mailbox()
+    print(json.dumps(results["captain_help"], indent=2), flush=True)
+
+    print("[2/7] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)
 
-    print("[2/6] closed run resume + permission override", flush=True)
+    print("[3/7] closed run resume + permission override", flush=True)
     results["resume"] = case_closed_run_resume(results["queued"])
     print(json.dumps(results["resume"], indent=2), flush=True)
 
-    print("[3/6] interrupt current turn + resume steering", flush=True)
+    print("[4/7] interrupt current turn + resume steering", flush=True)
     results["interrupt"] = case_interrupt_steering()
     print(json.dumps(results["interrupt"], indent=2), flush=True)
 
     if not args.skip_expensive:
-        print("[4/6] Haiku-composed Codex worker", flush=True)
+        print("[5/7] Haiku-composed Codex worker", flush=True)
         results["haiku"] = case_haiku_composed_worker()
         print(json.dumps(results["haiku"], indent=2), flush=True)
 
-        print("[5/6] first-mate visible pool", flush=True)
+        print("[6/7] first-mate visible pool", flush=True)
         results["firstmate"] = case_first_mate_pool()
         print(json.dumps(results["firstmate"], indent=2), flush=True)
 
-        print("[6/6] Claude advisor visible run", flush=True)
+        print("[7/7] Claude advisor visible run", flush=True)
         results["claude_advisor"] = case_claude_advisor()
         print(json.dumps(results["claude_advisor"], indent=2), flush=True)
 

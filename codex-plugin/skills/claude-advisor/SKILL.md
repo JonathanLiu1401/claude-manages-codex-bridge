@@ -42,6 +42,8 @@ Default advisor limits:
 
 Do not start extended Claude sessions from Codex. Do not use Claude for broad codebase reading or implementation writing; summarize with Codex first, then send Claude the distilled decision point.
 
+If this Codex session is a visible worker spawned by Claude and the prompt includes a `run_dir`, use `request_captain_help` instead of `start_visible_claude_advisor` for stuck mid-run feedback from the same captain. After submitting the request, stop with `Outcome: blocked_waiting_for_captain`.
+
 Visible advisor output shows prompts, streamed messages, tool/progress events, cost metadata, and logs. It cannot show hidden chain-of-thought.
 
 When calling `start_visible_claude_advisor`, pass:

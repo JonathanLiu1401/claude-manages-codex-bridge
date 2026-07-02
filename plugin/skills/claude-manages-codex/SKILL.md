@@ -136,6 +136,9 @@ The server exposes:
 - `start_visible_haiku_composed_codex_worker`: launches a visible run where Claude passes a compact `prompt_brief`, Haiku/low composes the full Codex prompt, then Codex executes it.
 - `start_visible_first_mate_codex_pool`: launches a visible Codex root coordinator instructed to spawn and manage Codex subagents.
 - `steer_visible_codex_run`: sends a captain steering instruction to an existing visible Codex run. If the visible window is active, the instruction is queued and consumed on the same Codex thread. If the window already closed and a `thread_id` exists, it launches a visible resume run on that thread.
+- `request_captain_help`: worker-side callback for a stuck visible Codex run to ask the same Claude captain for feedback.
+- `list_captain_help_requests`: captain-side view of pending stuck-worker requests.
+- `respond_to_captain_help_request`: captain-side response that records the answer and queues steering back to the same Codex run/thread.
 - `get_visible_run_status`: reads status and recent log lines from a visible run directory.
 - `list_visible_runs`: lists recent visible runs.
 
@@ -149,6 +152,7 @@ Use these optional arguments:
 - `compose_with_haiku`: optional on `start_visible_codex_worker`; set `true` when `prompt` is a compact brief rather than a final Codex prompt.
 - `prompt_brief`: use this with `start_visible_haiku_composed_codex_worker`. Keep it short: objective, decisions, constraints, scope, verification, and non-goals.
 - `steer_idle_seconds`: visible Codex runs wait briefly after each turn for queued steering, then close and reap child processes.
+- `captain_help`: returned by visible start tools; points to the per-run same-captain help mailbox.
 
 Use visible tools for:
 
@@ -165,15 +169,30 @@ Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-wo
 Claude should actively manage a visible Codex run instead of letting it drift:
 
 1. Start one visible Codex root or first-mate run with the goal, constraints, and acceptance criteria.
-2. Poll with `get_visible_run_status`; read the tail, pending steer count, thread id, and status.
-3. When Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory.
-4. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
-5. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
-6. If the visible window closed, let `steer_visible_codex_run` launch a visible resume run on the same thread. Start fresh only for unrelated work or polluted context.
+2. Poll with `get_visible_run_status`; read the tail, pending steer count, pending help requests, thread id, and status.
+3. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
+4. When Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory.
+5. If the worker is right to escalate, ask the user the specific decision question yourself, then call `respond_to_captain_help_request` with the user's answer. Do not tell Codex to ask the user directly.
+6. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
+7. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
+8. If the visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. Start fresh only for unrelated work or polluted context.
 
 Keep steering notes short. State the decision, changed scope, files or tests to focus on, and required next response shape. Do not restate the whole task unless the thread lost context.
 
 Use invisible `codex` / `codex-reply` for quick, low-noise, manager-controlled exchanges where live observation is not needed.
+
+## Same-Captain Help Callback
+
+Visible Codex prompts include a run-specific captain-help callback. When a spawned worker is blocked, confused, sees conflicting evidence, lacks confidence for `workspace-write`, or needs user-level approval, it should call `request_captain_help` with the visible `run_dir`, then stop its current turn with `Outcome: blocked_waiting_for_captain`.
+
+Claude owns the response:
+
+- use `get_visible_run_status` or `list_captain_help_requests` to inspect the request
+- answer with `respond_to_captain_help_request` when Claude can decide
+- ask the user a focused question when the request needs owner judgment, credentials, destructive permission, product direction, or risk acceptance
+- after the user answers, send the decision back with `respond_to_captain_help_request`
+
+Do not route same-captain help through `start_visible_claude_advisor` unless Claude explicitly wants a separate one-shot advisor. The point of the callback is to keep the spawned worker connected to the captain that launched it.
 
 ## Codex Subagents
 

@@ -19,6 +19,8 @@ Tool-access requirement: Codex workers in this bridge need full process/tool acc
 
 Prompt-cost requirement: expect Claude's active manager model to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
 
+Captain-help requirement: if you are blocked, confused, or not confident enough to continue safely, use the run's same-captain help mailbox (`request_captain_help` with the visible `run_dir`) and stop the current turn with `Outcome: blocked_waiting_for_captain`. Do not start a separate Claude advisor or ask the owner directly unless Claude explicitly told you to. Claude may escalate to the owner and steer you afterward.
+
 ## Prime Directives
 
 1. Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, or scoped implementation.

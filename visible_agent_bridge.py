@@ -29,6 +29,10 @@ CODEX_REASONING_EFFORT = "xhigh"
 CODEX_SERVICE_TIER = "fast"
 CODEX_FULL_TOOL_SANDBOX = "danger-full-access"
 CODEX_DEFAULT_SANDBOX = CODEX_FULL_TOOL_SANDBOX
+CAPTAIN_HELP_DIR = "captain_help"
+CAPTAIN_HELP_REQUESTS_DIR = "requests"
+CAPTAIN_HELP_ANSWERED_DIR = "answered"
+CAPTAIN_HELP_ESCALATED_DIR = "escalated"
 CLAUDE_ADVISOR_MODEL_ENV = "CLAUDE_MANAGES_CODEX_ADVISOR_MODEL"
 CLAUDE_ADVISOR_MODEL_UNTIL_ENV = "CLAUDE_MANAGES_CODEX_FABLE_UNTIL"
 CLAUDE_ADVISOR_PRIMARY_MODEL = "fable"
@@ -110,6 +114,8 @@ Session requirement: do not act as a blank chat. Use caller-provided context fir
 Tool-access requirement: this bridge gives Codex workers full process/tool access so Python skills, read-past-sessions, SSH, and external CLIs work. Treat Claude's requested sandbox as permission intent. If intent is read-only/no-edit, do not modify files or external state even though tools are available.
 
 Prompt-cost requirement: expect Claude's active manager model to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
+
+Captain-help requirement: if you are blocked, confused, or about to make an architectural/safety decision without enough confidence, request help from the same Claude captain through the run's captain-help mailbox. Do not start a separate Claude advisor unless Claude explicitly asked for that. After requesting help, stop the current turn and wait for captain steering. The captain may escalate the question to the owner.
 
 Prime directives:
 - Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, scoped implementation, verification, review, or recovery.
@@ -339,7 +345,38 @@ def _make_run(cwd: str | None, prefix: str, title: str, prompt: str, metadata: d
         json.dumps({"status": "created", "run_id": run_id, "created_at": _dt.datetime.now().isoformat()}, indent=2),
         encoding="utf-8",
     )
+    _ensure_captain_help_dirs(run_dir)
     return run_dir
+
+
+def _ensure_captain_help_dirs(run_dir: Path) -> dict[str, Path]:
+    root = run_dir / CAPTAIN_HELP_DIR
+    requests = root / CAPTAIN_HELP_REQUESTS_DIR
+    answered = root / CAPTAIN_HELP_ANSWERED_DIR
+    escalated = root / CAPTAIN_HELP_ESCALATED_DIR
+    for path in (requests, answered, escalated):
+        path.mkdir(parents=True, exist_ok=True)
+    return {"root": root, "requests": requests, "answered": answered, "escalated": escalated}
+
+
+def _captain_help_contract(run_dir: Path) -> str:
+    return textwrap.dedent(f"""
+    # Captain Help Callback
+
+    This visible run has a same-captain help mailbox.
+
+    Run directory: {run_dir}
+
+    If you are blocked, confused, unsure about architecture, unsure whether writes are safe, or stuck after one focused repair attempt:
+
+    1. Use the `request_captain_help` MCP tool if available.
+    2. Pass `run_dir` exactly as shown above.
+    3. Include the question, observed facts, commands/results, files involved, options considered, and your recommended next step.
+    4. After submitting the request, stop the current turn with `Outcome: blocked_waiting_for_captain`.
+    5. Do not ask the human owner directly. The same Claude captain may answer you via `steer_visible_codex_run` or escalate to the owner if needed.
+
+    Use `start_visible_claude_advisor` only when Claude explicitly asked you to consult a separate one-shot advisor. The default stuck-worker path is this same-captain mailbox.
+    """).strip()
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -918,7 +955,11 @@ def start_visible_codex_worker(
         "prompt_composer_effort": composer_effort if compose_with_haiku else None,
         "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
         "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
+        "captain_help_enabled": True,
     })
+    if not compose_with_haiku:
+        effective_prompt = "\n\n".join([_captain_help_contract(run_dir), effective_prompt])
+        (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
     if compose_with_haiku:
         composer_prompt = _haiku_codex_prompt_composer_prompt(
             prompt,
@@ -931,7 +972,10 @@ def start_visible_codex_worker(
         )
         (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
         codex_prelude = _with_session_context_bootstrap(
-            _codex_permission_contract(sandbox, effective_sandbox),
+            "\n\n".join([
+                _captain_help_contract(run_dir),
+                _codex_permission_contract(sandbox, effective_sandbox),
+            ]),
             cwd,
             "Codex worker",
             session_context,
@@ -967,7 +1011,8 @@ def start_visible_codex_worker(
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
         "steer_queue": str(run_dir / "steer_queue"),
-        "note": f"A visible PowerShell window was launched. Codex is forced to gpt-5.5/xhigh/service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
+        "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
+        "note": f"A visible PowerShell window was launched. Codex is forced to gpt-5.5/xhigh/service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
 
@@ -1181,6 +1226,232 @@ def steer_visible_codex_run(
     return result
 
 
+def _help_record_path(run_dir: Path, request_id: str) -> Path | None:
+    dirs = _ensure_captain_help_dirs(run_dir)
+    for key in ("requests", "answered", "escalated"):
+        candidate = dirs[key] / f"{request_id}.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _help_markdown(record: dict[str, Any]) -> str:
+    return textwrap.dedent(f"""
+    # Captain Help Request
+
+    Request ID: {record["request_id"]}
+    Status: {record["status"]}
+    Urgency: {record["urgency"]}
+    Blocks progress: {record["blocks_progress"]}
+    Created: {record["created_at"]}
+
+    ## Question
+
+    {record["question"]}
+
+    ## Context
+
+    {record["context"] or "None supplied."}
+
+    ## Recommended Next Step
+
+    {record["recommended_next"] or "None supplied."}
+    """).strip()
+
+
+def _summarize_help_requests(run_dir: Path, include_answered: bool = False, limit: int = 20) -> list[dict[str, Any]]:
+    dirs = _ensure_captain_help_dirs(run_dir)
+    paths = list(dirs["requests"].glob("*.json")) + list(dirs["escalated"].glob("*.json"))
+    if include_answered:
+        paths += list(dirs["answered"].glob("*.json"))
+    records: list[dict[str, Any]] = []
+    for path in sorted(paths, key=lambda p: p.name, reverse=True):
+        record = _read_json(path, {})
+        if not record:
+            continue
+        records.append({
+            "request_id": record.get("request_id"),
+            "status": record.get("status"),
+            "urgency": record.get("urgency"),
+            "blocks_progress": record.get("blocks_progress"),
+            "created_at": record.get("created_at"),
+            "updated_at": record.get("updated_at"),
+            "question": record.get("question"),
+            "recommended_next": record.get("recommended_next"),
+            "run_dir": str(run_dir),
+        })
+        if len(records) >= max(1, min(limit, 100)):
+            break
+    return records
+
+
+@mcp.tool()
+def request_captain_help(
+    run_dir: str,
+    question: str,
+    context: str = "",
+    urgency: str = "normal",
+    recommended_next: str = "",
+    blocks_progress: bool = True,
+) -> dict[str, Any]:
+    """Create a help request for the same Claude captain that spawned a visible Codex run."""
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    if metadata.get("agent") not in (None, "codex"):
+        return {"ok": False, "error": f"run_dir is not a Codex visible run: {path}", "metadata": metadata}
+    if not question.strip():
+        return {"ok": False, "error": "question is required"}
+    dirs = _ensure_captain_help_dirs(path)
+    request_id = f"{_now()}-help-{uuid.uuid4().hex[:8]}"
+    now = _dt.datetime.now().isoformat()
+    record = {
+        "request_id": request_id,
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "run_dir": str(path),
+        "thread_id": (path / "thread_id.txt").read_text(encoding="utf-8-sig").strip() if (path / "thread_id.txt").exists() else None,
+        "urgency": urgency.strip() or "normal",
+        "blocks_progress": bool(blocks_progress),
+        "question": question.strip(),
+        "context": context.strip(),
+        "recommended_next": recommended_next.strip(),
+    }
+    json_path = dirs["requests"] / f"{request_id}.json"
+    md_path = dirs["requests"] / f"{request_id}.md"
+    json_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    md_path.write_text(_help_markdown(record), encoding="utf-8")
+    try:
+        with (path / "display.log").open("a", encoding="utf-8") as log:
+            log.write(f"[{_dt.datetime.now().strftime('%H:%M:%S')}] Captain help requested: {request_id} ({record['urgency']})\n")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "run_dir": str(path),
+        "request": str(json_path),
+        "request_markdown": str(md_path),
+        "note": "Help request recorded for the same Claude captain. Stop this Codex turn and wait for captain steering.",
+    }
+
+
+@mcp.tool()
+def list_captain_help_requests(
+    cwd: str | None = None,
+    run_dir: str = "",
+    include_answered: bool = False,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """List pending or recent captain-help requests for visible Codex runs."""
+    if run_dir.strip():
+        path = Path(run_dir).expanduser().resolve()
+        if not path.exists():
+            return []
+        return _summarize_help_requests(path, include_answered=include_answered, limit=limit)
+    root = _run_root(cwd)
+    if not root.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for run in sorted(root.glob("*"), key=lambda p: p.name, reverse=True):
+        if not run.is_dir():
+            continue
+        rows.extend(_summarize_help_requests(run, include_answered=include_answered, limit=limit))
+        if len(rows) >= max(1, min(limit, 100)):
+            break
+    return rows[: max(1, min(limit, 100))]
+
+
+@mcp.tool()
+def respond_to_captain_help_request(
+    run_dir: str,
+    request_id: str,
+    response: str = "",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    escalate_to_user: bool = False,
+    user_question: str = "",
+) -> dict[str, Any]:
+    """Answer a visible Codex worker's captain-help request, or mark it as escalated to the user."""
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    record_path = _help_record_path(path, request_id)
+    if record_path is None:
+        return {"ok": False, "error": f"help request not found: {request_id}"}
+    record = _read_json(record_path, {})
+    if not record:
+        return {"ok": False, "error": f"help request is unreadable: {request_id}"}
+    dirs = _ensure_captain_help_dirs(path)
+    now = _dt.datetime.now().isoformat()
+    if escalate_to_user and not response.strip():
+        record.update({
+            "status": "escalated_to_user",
+            "updated_at": now,
+            "user_question": user_question.strip() or record.get("question") or "",
+        })
+        target = dirs["escalated"] / f"{request_id}.json"
+        target.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        (dirs["escalated"] / f"{request_id}.md").write_text(_help_markdown(record), encoding="utf-8")
+        try:
+            record_path.unlink(missing_ok=True)
+            record_path.with_suffix(".md").unlink(missing_ok=True)
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "request_id": request_id,
+            "status": "escalated_to_user",
+            "user_question": record["user_question"],
+            "note": "Ask the user this question, then call respond_to_captain_help_request again with the user's decision.",
+        }
+    if not response.strip():
+        return {"ok": False, "error": "response is required unless escalate_to_user=true"}
+    record.update({
+        "status": "answered",
+        "updated_at": now,
+        "response": response.strip(),
+        "session_context": session_context.strip(),
+    })
+    target = dirs["answered"] / f"{request_id}.json"
+    target.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    (dirs["answered"] / f"{request_id}.md").write_text(_help_markdown(record) + f"\n\n## Captain Response\n\n{response.strip()}\n", encoding="utf-8")
+    try:
+        record_path.unlink(missing_ok=True)
+        record_path.with_suffix(".md").unlink(missing_ok=True)
+    except Exception:
+        pass
+    instruction = textwrap.dedent(f"""
+    Captain response to help request `{request_id}`.
+
+    Original worker question:
+    {record.get("question") or ""}
+
+    Captain response:
+    {response.strip()}
+
+    Continue the same task using this decision. If this response says the user must decide, stop and report that you are waiting for the owner through Claude. Do not ask the owner directly.
+    """).strip()
+    steer = steer_visible_codex_run(
+        str(path),
+        instruction,
+        title=f"Captain help response {request_id}",
+        session_context=session_context,
+        sandbox=sandbox,
+        launch_if_closed=launch_if_closed,
+    )
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "status": "answered",
+        "steer": steer,
+        "note": "Captain response recorded and queued as steering for the same Codex run/thread.",
+    }
+
+
 @mcp.tool()
 def start_visible_claude_advisor(
     prompt: str,
@@ -1259,6 +1530,7 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     metadata_path = path / "metadata.json"
     steer_queue = path / "steer_queue"
     steer_done = path / "steer_done"
+    help_dirs = _ensure_captain_help_dirs(path)
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
     lines: list[str] = []
@@ -1273,6 +1545,10 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
         "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
         "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
+        "pending_help_requests": len(list(help_dirs["requests"].glob("*.json"))),
+        "answered_help_requests": len(list(help_dirs["answered"].glob("*.json"))),
+        "escalated_help_requests": len(list(help_dirs["escalated"].glob("*.json"))),
+        "help_requests": _summarize_help_requests(path, include_answered=False, limit=10),
         "tail": "\n".join(lines),
     }
 

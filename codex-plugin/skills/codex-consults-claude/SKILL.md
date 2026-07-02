@@ -18,6 +18,7 @@ Use Codex as the worker harness and Claude Code's active manager model as the ex
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must use a full-tool Codex worker.
 - Do not ask the Claude manager model to write long Codex worker prompts or implementation code. It should return decisions, constraints, acceptance criteria, and review findings; the Claude-side bridge uses Haiku/low to compose detailed Codex prompts.
 - When the user wants visibility, use visible advisor tools so the prompt and streamed output appear in a terminal and logs.
+- If this Codex session was spawned by a visible Claude-managed run and is stuck mid-run, prefer the same-captain mailbox: call `request_captain_help` with the visible `run_dir`, then stop and wait for captain steering. Do not start a separate Claude advisor for that case unless Claude explicitly told you to.
 
 Consult Claude when:
 
@@ -47,12 +48,25 @@ Use the plugin-provided MCP server `agent-visibility` for Claude consultations. 
 The server exposes:
 
 - `start_visible_claude_advisor`: launches `claude -p --output-format stream-json --max-budget-usd <budget>` in a visible PowerShell window, saves logs, and records a resumable Claude session id.
+- `request_captain_help`: asks the same Claude captain who spawned this visible Codex run for feedback.
 - `get_visible_run_status`: reads status and recent display log lines.
 - `list_visible_runs`: lists recent visible runs.
 
 Use visible advisor sessions only for expensive/high-level Claude consultations, final review requests, and user-requested observed advisor work.
 
 The visible advisor launcher uses the central advisor model policy even if a caller passes cheaper values: `fable` / `high` through July 7, 2026, then `opus` / `high`. It keeps the process one-shot and exits after the run, but persists the Claude session id so a cut-off run can be resumed.
+
+## Same-Captain Help
+
+When a visible Codex worker needs the captain who launched it:
+
+1. Call `request_captain_help`.
+2. Pass the exact visible `run_dir` from the prompt.
+3. Include the blocker, evidence, commands/results, files, options considered, and the smallest decision needed.
+4. Stop the current turn with `Outcome: blocked_waiting_for_captain`.
+5. Wait for Claude to respond through steering on the same run/thread.
+
+Claude may escalate the issue to the user. Do not contact the user directly.
 
 Use these optional arguments:
 
