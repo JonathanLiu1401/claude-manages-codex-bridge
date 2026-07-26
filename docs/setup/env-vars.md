@@ -11,7 +11,7 @@ by `cld.cmd`.
 "env": {
   "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
   "ENABLE_TOOL_SEARCH": "true",
-  "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8[1m]",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]",
   "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5[1m]",
   "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5[1m]",
   "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "500000",
@@ -93,7 +93,7 @@ So the picker is built ONLY from static, env-defined entries (no fetch, no auth)
    `_SUPPORTED_CAPABILITIES`). These accept **only real Claude models**; a non-Claude id is silently
    rejected and the slot falls back to its default. **VERIFIED**: `ANTHROPIC_DEFAULT_HAIKU_MODEL=
    agy-gemini-3-1-pro[1m]` still rendered "Haiku 4.5", not Gemini. (This is why the Opus slot can be
-   `claude-opus-4-8[1m]` but no tier slot can hold grok/gemini.)
+   `claude-opus-5[1m]` but no tier slot can hold grok/gemini.)
 2. **One custom slot** — `ANTHROPIC_CUSTOM_MODEL_OPTION` (+ `_NAME`/`_DESCRIPTION`/
    `_SUPPORTED_CAPABILITIES`). Accepts **any** model, no validation. **VERIFIED**: `grok-4.5`
    rendered as a picker row. Singular — there is no `_2`.

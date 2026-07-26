@@ -4675,7 +4675,7 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
 # (`claude -p --output-format stream-json`) instead of opening a visible
 # terminal/TUI per agent. Routed through a local CLIProxyAPI gateway
 # (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN), one worker can run ANY
-# provider's model — claude-opus-4-8, claude-sonnet-5, grok-4.5, kimi-k2.5,
+# provider's model — claude-opus-5, claude-sonnet-5, grok-4.5, kimi-k2.5,
 # gpt-5-codex, ... — selected per spawn via the `model` argument, which is
 # genuinely honored (unlike the Codex backend's recorded-but-ignored pattern).
 # The runner (claude_worker_runner.py, deployed beside this file) is plain
@@ -4683,7 +4683,7 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
 # the full run-directory protocol: steering, captain help/report, watchers.
 
 CLAUDE_WORKER_RUNNER = Path(__file__).resolve().parent / "claude_worker_runner.py"
-CLAUDE_WORKER_DEFAULT_MODEL = os.environ.get("BRIDGE_CLAUDE_WORKER_MODEL", "").strip() or "claude-opus-4-8"
+CLAUDE_WORKER_DEFAULT_MODEL = os.environ.get("BRIDGE_CLAUDE_WORKER_MODEL", "").strip() or "claude-opus-5"
 CLAUDE_WORKER_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CLIPROXY_BASE_URL_ENV = "CLIPROXY_BASE_URL"
 CLIPROXY_API_KEY_ENV = "CLIPROXY_API_KEY"
@@ -4798,7 +4798,7 @@ def start_claude_worker(
     run directory (events.jsonl, display.log, status.json, captain_reports/).
     With use_proxy=True (default) the worker is routed through the local
     CLIProxyAPI gateway, so `model` may be any model the proxy serves —
-    e.g. claude-opus-4-8, claude-sonnet-5, claude-fable-5, grok-4.5 — and it is
+    e.g. claude-opus-5, claude-sonnet-5, claude-fable-5, grok-4.5 — and it is
     honored exactly as passed. Steering, captain-help, and captain-report
     tooling work identically to the other backends. Cross-platform.
     """

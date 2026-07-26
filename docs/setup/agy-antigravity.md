@@ -76,7 +76,7 @@ Start-ScheduledTask -TaskName 'CLIProxyAPI'   # relaunches with -config config.y
 GET http://127.0.0.1:8317/v1/models
 ```
 - The 4 aliases appear once each with `owned_by: antigravity`; the 4 upstream ids are gone.
-- `claude-sonnet-4-6` is now `owned_by: anthropic` only (collision split); `claude-opus-4-8`,
+- `claude-sonnet-4-6` is now `owned_by: anthropic` only (collision split); `claude-opus-5`,
   `claude-sonnet-5`, `grok-4.5` still present.
 - Probe the real subagent path (`POST /v1/messages`, `model: <alias>`, tiny `max_tokens`):
   expect 200 with the response `model` echoing the alias (force-mapping working). Because
