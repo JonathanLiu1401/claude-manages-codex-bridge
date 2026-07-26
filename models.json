@@ -1,0 +1,12 @@
+{
+  "_comment": "Single source of truth for model IDs. Edit here, then run: pwsh sync-models.ps1 -Apply",
+  "roles": {
+    "opus":      { "id": "claude-opus-5",       "window": "[1m]" },
+    "sonnet":    { "id": "claude-sonnet-5",     "window": "[1m]" },
+    "fable":     { "id": "claude-fable-5",      "window": "[1m]" },
+    "grok":      { "id": "grok-4.5",            "window": "" },
+    "agy-pro":   { "id": "agy-gemini-3-1-pro",  "window": "[1m]" },
+    "agy-flash": { "id": "agy-gemini-3-5-flash","window": "[1m]" }
+  },
+  "bindings": { "worker_default": "opus", "advisor": "opus", "custom_slot": "grok", "advisor_alias_form": true }
+}
