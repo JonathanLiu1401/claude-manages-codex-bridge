@@ -1,6 +1,6 @@
 ---
 name: claude-manages-codex
-description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); workers do implementation. ALWAYS spawn via native Agent-tool subagents first (subagent_type "grok" default in proxy/clx sessions; agy-gemini-3-1-pro / agy-gemini-3-5-flash on grok exhaustion; model sonnet as always-available fallback). Do NOT default to start_claude_worker, start_visible_*, or any Codex tool. start_claude_worker is secondary (headless run-dir / non-proxy only). start_visible_* is legacy on-request only (Competition Mode / Work-Checker). Codex is disabled. Trigger for "delegate to grok", "use the multi-agent harness", "parallelize with subagents", "first mate", or any coding task where Claude decides and a worker codes.
+description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); workers do implementation. ALWAYS spawn via native Agent-tool subagents first (subagent_type "grok" default in proxy/clx sessions; agy-gemini-3-1-pro / agy-gemini-3-6-flash on grok exhaustion; model sonnet as always-available fallback). Do NOT default to start_claude_worker, start_visible_*, or any Codex tool. start_claude_worker is secondary (headless run-dir / non-proxy only). start_visible_* is legacy on-request only (Competition Mode / Work-Checker). Codex is disabled. Trigger for "delegate to grok", "use the multi-agent harness", "parallelize with subagents", "first mate", or any coding task where Claude decides and a worker codes.
 ---
 
 # Multi-Agentic Harness (internal id: claude-manages-codex)
@@ -16,7 +16,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 | Priority | When | How to spawn | How to steer |
 | --- | --- | --- | --- |
 | **1 (DEFAULT)** | Proxy-backed session (`clx`, or plain merged with CLIProxyAPI) and default worker | `Agent` tool, `subagent_type: "grok"` | `SendMessage` |
-| **1b** | Grok capped/exhausted, or owner asks for agy/Gemini | `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` (harder) or `"agy-gemini-3-5-flash"` (fast) | `SendMessage` |
+| **1b** | Grok capped/exhausted, or owner asks for agy/Gemini | `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` (harder) or `"agy-gemini-3-6-flash"` (fast) | `SendMessage` |
 | **1c** | Proxy/grok unavailable, or task needs Claude-only capability | `Agent` tool, `model: sonnet` (or Explore / general-purpose) | `SendMessage` / follow-up Agent |
 | **2 (secondary)** | Native cannot apply: non-proxy session that still needs grok; long-running run-dir protocol; explicit headless multi-turn with `steer_claude_run` | `start_claude_worker(model="grok-4.6", ...)` then arm `watch_command` | `steer_claude_run` |
 | **3 (legacy, on request only)** | Owner asks to watch a terminal, OR task needs grok-CLI-only Parallel Competition Mode / Work-Checker | `start_visible_grok_worker` / pool / haiku-composed | `steer_visible_grok_run` |
@@ -53,7 +53,7 @@ Parallel fan-out: issue multiple `Agent` calls in one message (or a Workflow). D
 Supported backends (in preferred order):
 
 - **Native grok subagent (DEFAULT)** - `Agent` tool, `subagent_type: "grok"`, defined by `agents/grok.md`. Proxy-backed sessions only. See "Native grok subagent backend" below.
-- **Native agy Gemini subagents (next on ladder)** - `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"`. Separate agy quota. See "Native agy subagent backend" below.
+- **Native agy Gemini subagents (next on ladder)** - `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-6-flash"`. Separate agy quota. See "Native agy subagent backend" below.
 - **Claude Sonnet native subagent (always-available fallback)** - `Agent` tool, `model: sonnet`. No CLI, no auth, no run-dir machinery.
 - **`start_claude_worker` (SECONDARY headless path)** - detached headless `claude -p` via CLIProxyAPI; use only when native Agent spawn does not apply (non-proxy needing grok, explicit run-dir / `steer_claude_run` multi-turn). Tool default model is `claude-opus-5` - pass `model="grok-4.6"` explicitly for default grok work. See "Headless claude_worker backend" below.
 - **Grok CLI (legacy visible-window)** - only for Parallel Competition Mode / Work-Checker gate, or when the owner asks for a visible terminal. `start_visible_grok_worker`, `start_visible_haiku_composed_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`. See `references/legacy-backends.md`.
@@ -65,7 +65,7 @@ Supported backends (in preferred order):
 Unless the owner says otherwise:
 
 1. **Default worker MODEL = grok-4.6. Default SPAWN PATH = native `Agent` subagent** (`subagent_type: "grok"`) in any proxy-backed session.
-2. **Grok exhausted / owner asks for agy** → native `agy-gemini-3-1-pro` or `agy-gemini-3-5-flash` (grok-4.6 still routes first when available).
+2. **Grok exhausted / owner asks for agy** → native `agy-gemini-3-1-pro` or `agy-gemini-3-6-flash` (grok-4.6 still routes first when available).
 3. **Proxy/grok unavailable or Claude-only task** → Claude Sonnet `Agent` subagent.
 4. **Native cannot apply** → `start_claude_worker(model="grok-4.6", ...)` (secondary). Never treat this as the everyday default when native works.
 5. **Competition Mode / Work-Checker / "open a terminal"** → legacy `start_visible_grok_*` only.
@@ -85,7 +85,7 @@ Spawn with the `Agent` tool, `subagent_type: "grok"`. Defined by `agents/grok.md
 
 Two Google Antigravity **Gemini** models are wired as **native Claude Code subagents** (Agent tool, `subagent_type`), served through CLIProxyAPI's **antigravity** OAuth channel - the non-terminal alternative to `start_visible_agy_worker`. Each draws the agy account's **SEPARATE** quota, never the owner's real Claude/Anthropic subscription. Defined by `~/.claude/agents/agy-*.md` (deployed from repo `plugin/agents/`, junction-shared into `~/.claude-clx`).
 
-- Subagents (capability order): `agy-gemini-3-1-pro` > `agy-gemini-3-5-flash` (Gemini 3.1 Pro / 3.5 Flash High). The agy Claude 4.6 models (opus/sonnet) are deliberately NOT wired - their Antigravity quota bucket's limits are too low to be usable (see Quota below). Owner rule of thumb: `agy-gemini-3-5-flash` = speedy ops, `agy-gemini-3-1-pro` = harder/slower.
+- Subagents (capability order): `agy-gemini-3-1-pro` > `agy-gemini-3-6-flash` (Gemini 3.1 Pro / 3.6 Flash High). The agy Claude 4.6 models (opus/sonnet) are deliberately NOT wired - their Antigravity quota bucket's limits are too low to be usable (see Quota below). Owner rule of thumb: `agy-gemini-3-6-flash` = speedy ops, `agy-gemini-3-1-pro` = harder/slower.
 - **Routing:** grok-4.6 FIRST (grok-4.6 > agy Gemini); use agy on grok-exhaustion or explicit request. Like any native subagent, only in a proxy-backed session (plain merged / clx).
 - **Quota:** the two wired Gemini subagents draw the {gemini flash, pro} bucket (ample - ~96%+ free in practice). The other bucket {Claude opus, sonnet, gpt-oss} has very low limits - its 5-hour window exhausts fast (observed at 0% while Gemini had ~96%) - so the Claude 4.6 models AND GPT-OSS 120B are served but deliberately UNWIRED. Gemini rides free quota.
 - **Context windows:** each Gemini subagent pins `<id>[1m]` → ~1M client window (Gemini is natively ~1M). If `[1m]` is stripped in subagent resolution (anthropics/claude-code#45169) the fallback is safe (agy-*→500k global) - under-budget, never overflow.
@@ -476,11 +476,11 @@ Unlike Codex (`--json`) and Grok (`--output-format streaming-json`), `agy` has n
 `agy` has no `--reasoning-effort` flag at all. Effort is selected by picking a different `--model` value:
 
 ```
-AGY_MODELS_BY_EFFORT = {"high": "Gemini 3.5 Flash (High)", "medium": "Gemini 3.5 Flash (Medium)", "low": "Gemini 3.5 Flash (Low)"}
-AGY_DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
+AGY_MODELS_BY_EFFORT = {"high": "Gemini 3.6 Flash (High)", "medium": "Gemini 3.6 Flash (Medium)", "low": "Gemini 3.6 Flash (Low)"}
+AGY_DEFAULT_MODEL = "Gemini 3.6 Flash (High)"
 ```
 
-`start_visible_agy_worker`'s `reasoning_effort` parameter (default `"high"`) is looked up in this table via `_agy_model_for_effort`; anything outside `low`/`medium`/`high` (case-insensitive) falls back to the `"high"` model. `agy models` also lists non-Gemini options (`Gemini 3.1 Pro (Low|High)`, `Claude Sonnet 4.6 (Thinking)`, `Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`) that this bridge does not route to - the effort table only covers the three Gemini 3.5 Flash tiers the owner asked for.
+`start_visible_agy_worker`'s `reasoning_effort` parameter (default `"high"`) is looked up in this table via `_agy_model_for_effort`; anything outside `low`/`medium`/`high` (case-insensitive) falls back to the `"high"` model. `agy models` also lists non-Gemini options (`Gemini 3.1 Pro (Low|High)`, `Claude Sonnet 4.6 (Thinking)`, `Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`) that this bridge does not route to - the effort table only covers the three Gemini 3.6 Flash tiers the owner asked for.
 
 ### agy has no session id - `--continue` is cwd-scoped, not thread-scoped
 

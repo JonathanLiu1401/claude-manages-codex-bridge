@@ -10,12 +10,12 @@ account's **separate** quota, never the owner's real Claude/Anthropic subscripti
 | subagent_type | client model id (pinned `[1m]`) | Antigravity upstream id | display |
 |---|---|---|---|
 | `agy-gemini-3-1-pro` | `agy-gemini-3-1-pro` | `gemini-pro-agent` | Gemini 3.1 Pro (High) |
-| `agy-gemini-3-5-flash` | `agy-gemini-3-5-flash` | `gemini-3.6-flash-high` | Gemini 3.6 Flash (High) |
+| `agy-gemini-3-6-flash` | `agy-gemini-3-6-flash` | `gemini-3.6-flash-high` | Gemini 3.6 Flash (High) |
 
-> **2026-07-27:** 3.6 Flash supersedes 3.5, so the flash alias was repointed to
-> `gemini-3.6-flash-high`. The client-visible alias deliberately stays
-> `agy-gemini-3-5-flash` so the subagent type and ~50 doc references keep working
-> (renaming it would touch 21 files). See the exact-catalog-id gotcha in section 3.
+> **2026-08-12:** Gemini 3.6 Flash fully supersedes 3.5 Flash. The client alias,
+> agent file, and `subagent_type` are now `agy-gemini-3-6-flash` (same kind of
+> rename as grok-4.5 -> grok-4.6). Upstream catalog id stays
+> `gemini-3.6-flash-high`. See the exact-catalog-id gotcha in section 3.
 
 > "High" tier = the `-agent` upstream id, **not** `*-high` (those aren't in the live
 > catalog). GPT-OSS 120B (`gpt-oss-120b-medium`) **and the Claude 4.6 models** (Opus/Sonnet 4.6 Thinking) are served by the channel but left
@@ -49,8 +49,8 @@ oauth-model-alias:
       display-name: "Antigravity Gemini 3.1 Pro (High)"
       force-mapping: true
     - name: "gemini-3-flash-agent"
-      alias: "agy-gemini-3-5-flash"
-      display-name: "Antigravity Gemini 3.5 Flash (High)"
+      alias: "agy-gemini-3-6-flash"
+      display-name: "Antigravity Gemini 3.6 Flash (High)"
       force-mapping: true
 
 # Exclude the Antigravity Claude 4.6 models (quota bucket exhausts instantly).
@@ -126,8 +126,8 @@ are capped. Opus can burn Google One AI credits after free-tier exhaustion
 
 Routing: **grok-4.6 routes first**; **Claude Sonnet subagents are the fallback**; **Codex is DISABLED**;
 use the **agy (Gemini) ladder on grok-exhaustion or explicit request** (owner: grok-4.6 > agy Gemini). Only the Gemini subagents are wired - the Claude/GPT bucket's limits are too low.
-Capability order gemini-3.1-pro > gemini-3.5-flash,
-with the owner's rule of thumb: gemini-3.5-flash = speedy ops, gemini-3.1-pro =
+Capability order gemini-3.1-pro > gemini-3.6-flash,
+with the owner's rule of thumb: gemini-3.6-flash = speedy ops, gemini-3.1-pro =
 slower/harder (Flash actually edges Pro on agentic-coding throughput benchmarks).
 
 ## 7. Reload note

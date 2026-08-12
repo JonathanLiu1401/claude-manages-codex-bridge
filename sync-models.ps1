@@ -410,7 +410,7 @@ function Invoke-ModelSync {
     $t5Files = @(
         @{ Name = 'grok.md'; Role = 'grok' },
         @{ Name = 'agy-gemini-3-1-pro.md'; Role = 'agy-pro' },
-        @{ Name = 'agy-gemini-3-5-flash.md'; Role = 'agy-flash' }
+        @{ Name = 'agy-gemini-3-6-flash.md'; Role = 'agy-flash' }
     )
     foreach ($f in $t5Files) {
         $desired = Resolve-RoleFull $RolesHt $f.Role
@@ -458,7 +458,7 @@ function Invoke-Doctor {
         -RepoPath (Join-Path $RepoRoot 'claude_worker_runner.py') `
         -DeployPath (Join-Path $HomeDir '.agent-bridge\claude_worker_runner.py')))
 
-    foreach ($n in @('grok.md', 'agy-gemini-3-1-pro.md', 'agy-gemini-3-5-flash.md')) {
+    foreach ($n in @('grok.md', 'agy-gemini-3-1-pro.md', 'agy-gemini-3-6-flash.md')) {
         [void]$results.Add((Compare-DoctorPair -Label ('plugin\agents\' + $n) `
             -RepoPath (Join-Path $RepoRoot ('plugin\agents\' + $n)) `
             -DeployPath (Join-Path $HomeDir ('.claude\agents\' + $n))))
@@ -578,7 +578,7 @@ function Invoke-Verify {
 # agy-* are informational only, never version-compared or auto-promoted:
 # their ids are hand-authored aliases in CLIProxyAPI's config.yaml
 # (oauth-model-alias.antigravity force-maps upstream names to
-# agy-gemini-3-1-pro / agy-gemini-3-5-flash), so a newer catalog entry is not
+# agy-gemini-3-1-pro / agy-gemini-3-6-flash), so a newer catalog entry is not
 # a drop-in id and adopting one would not even route through the alias layer.
 # ---------------------------------------------------------------------------
 

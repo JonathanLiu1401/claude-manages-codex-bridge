@@ -105,13 +105,13 @@ both.** The other is reached via typed `/model <id>` or a launcher (`clg` for gr
 
 **Window — the `[1m]` rule for non-Claude MAIN models:** a non-Claude id used as the main model
 (the custom slot, the `model` pin, or typed `/model`) needs the `[1m]` suffix for its 1M window; bare,
-it inherits the 500k global `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. **VERIFIED**: bare `agy-gemini-3-5-flash`
-showed 500k in `/context`; `agy-gemini-3-5-flash[1m]` → 1M. So pin/select Gemini as
-`agy-gemini-3-5-flash[1m]`, and use the suffix when typing (`/model agy-gemini-3-5-flash[1m]`).
+it inherits the 500k global `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. **VERIFIED**: bare `agy-gemini-3-6-flash`
+showed 500k in `/context`; `agy-gemini-3-6-flash[1m]` → 1M. So pin/select Gemini as
+`agy-gemini-3-6-flash[1m]`, and use the suffix when typing (`/model agy-gemini-3-6-flash[1m]`).
 **Grok stays BARE** — its real window is ~500k, so `[1m]` would over-budget it. (The agy Gemini
 subagents already bake `[1m]` into their frontmatter.)
 
-**Current setup (2026-08-12):** custom slot = `grok-4.6` ("Grok 4.6 xhigh", ~500k); Gemini 3.5 Flash via
-`/model agy-gemini-3-5-flash[1m]` or the `model` pin at 1M; Opus/Sonnet slots = real Claude (1M),
+**Current setup (2026-08-12):** custom slot = `grok-4.6` ("Grok 4.6 xhigh", ~500k); Gemini 3.6 Flash via
+`/model agy-gemini-3-6-flash[1m]` or the `model` pin at 1M; Opus/Sonnet slots = real Claude (1M),
 Fable = real Claude (**protected** — usage credits), Haiku = default. Env is read at bootstrap → a
 FULL session restart applies changes (`/reload-plugins` does not).

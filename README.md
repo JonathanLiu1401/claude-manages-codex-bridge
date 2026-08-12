@@ -22,7 +22,7 @@ captain-help mailboxes.
 the **grok CLI** visible-window backend remains for its exclusive extras (Parallel Competition Mode,
 Mandatory Parallel Work-Checker); **Google Antigravity (agy)** has a preferred **native subagent path**
 with 2 **Gemini** models — Gemini 3.1 Pro
-(High), Gemini 3.5 Flash (High) — spawnable as `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"` through CLIProxyAPI on the agy
+(High), Gemini 3.6 Flash (High) — spawnable as `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-6-flash"` through CLIProxyAPI on the agy
 account's **separate quota** (not the real Claude/Anthropic subscription; definitions in
 `plugin/agents/agy-*.md`), preferred over the legacy visible-terminal `start_visible_agy_worker`;
 **Codex is disabled until further notice** (its ChatGPT login is revoked — the code is left intact but
@@ -70,7 +70,7 @@ proxy-backed sessions; definition in `plugin/agents/grok.md`), **claude_worker**
 implemented by `claude_worker_runner.py`), **Grok CLI** (`grok-4.6`, legacy visible-window, kept for
 Parallel Competition Mode + the Mandatory Parallel Work-Checker gate), **Claude Sonnet** (in-process
 `Agent` tool, always available), **Codex** (`gpt-5.6-sol`, disabled), and **Antigravity/agy** (preferred
-native Gemini subagents: `agy-gemini-3-1-pro` / `agy-gemini-3-5-flash` via
+native Gemini subagents: `agy-gemini-3-1-pro` / `agy-gemini-3-6-flash` via
 CLIProxyAPI on the agy account's separate quota — see `plugin/agents/agy-*.md`; legacy visible-terminal
 `start_visible_agy_worker` still available).
 **Grok-4.5 is the preferred worker model; the windowless paths are the preferred spawn paths** (owner
@@ -124,7 +124,7 @@ uses.
 
 ### Antigravity (agy) backend
 
-**Preferred path (native Gemini subagents, 2026-07-19):** 2 models — Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native Claude Code subagents (`subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
+**Preferred path (native Gemini subagents, 2026-07-19):** 2 models — Gemini 3.1 Pro (High), Gemini 3.6 Flash (High) — spawnable as native Claude Code subagents (`subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-6-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
 account's **separate quota** (not the real Claude/Anthropic subscription). The agy Gemini subagents draw the {gemini-3.1-pro, gemini-3.5-flash} quota bucket (ample). The other bucket {Claude opus-4-6, sonnet-4-6, gpt-oss-120B} has very low limits — its 5-hour window exhausts fast (observed at 0% while the Gemini bucket had ~96% free) — so the Claude 4.6 models (and GPT-OSS) are served but left UNWIRED as subagents. The agy-Gemini path requires CLIProxyAPI v7.2.90 or newer (the earlier "malformed HTTP 200" failures were GH#4431, fixed in v7.2.90+). Preferred over the legacy
 visible-terminal tools below. Requires Antigravity channel auth (`cli-proxy-api.exe -antigravity-login`)
 and the `oauth-model-alias.antigravity` block in `config.yaml` — see `docs/setup/agy-antigravity.md`.
@@ -145,9 +145,9 @@ tells it to call them (see callback model below).
   the turn's full unfiltered stdout to `output.txt` + `display.log`, and writes
   `captain_reports/final.md`/`final.json` from that raw stdout. stderr goes to `display.log` only, never
   into `output.txt` or the captain report.
-- **Effort is baked into `--model`**, not a flag: `AGY_MODELS_BY_EFFORT = {"high": "Gemini 3.5 Flash
-  (High)", "medium": "Gemini 3.5 Flash (Medium)", "low": "Gemini 3.5 Flash (Low)"}`,
-  `AGY_DEFAULT_MODEL = "Gemini 3.5 Flash (High)"`. `start_visible_agy_worker`'s `reasoning_effort`
+- **Effort is baked into `--model`**, not a flag: `AGY_MODELS_BY_EFFORT = {"high": "Gemini 3.6 Flash
+  (High)", "medium": "Gemini 3.6 Flash (Medium)", "low": "Gemini 3.6 Flash (Low)"}`,
+  `AGY_DEFAULT_MODEL = "Gemini 3.6 Flash (High)"`. `start_visible_agy_worker`'s `reasoning_effort`
   parameter (default `"high"`) selects the model via `_agy_model_for_effort`; anything unrecognized falls
   back to the default "high" model.
 - **No session id, `--continue` is cwd-scoped, not thread-scoped**: agy never prints a session id on a

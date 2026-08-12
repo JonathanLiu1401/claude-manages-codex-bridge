@@ -16,8 +16,8 @@ cannot apply.
   xhigh is available in both grok Build CLI and cursor-agent CLI
   (`cursor-grok-4.6-xhigh` with Cursor Max Mode on). `~/.grok/config.toml`
   already sets `default = "grok-4.6"` and `default_reasoning_effort = "xhigh"`.
-- **Antigravity / Gemini 3.5 Flash (High)** (on request): Google `agy` CLI,
-  plain-text `agy -p "..." --model "Gemini 3.5 Flash (High)"
+- **Antigravity / Gemini 3.6 Flash (High)** (on request): Google `agy` CLI,
+  plain-text `agy -p "..." --model "Gemini 3.6 Flash (High)"
   --dangerously-skip-permissions`; tools `start_visible_agy_worker` etc. Strong
   at coding proficiency, front-end design, and fast multi-turn coding-agent
   tasks. Effort is encoded in the model name; output is plain text, resume/steer

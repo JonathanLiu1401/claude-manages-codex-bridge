@@ -3788,11 +3788,11 @@ def steer_visible_grok_run(
 #      is therefore the ONLY result-callback path for agy; see SKILL.md.
 
 AGY_MODELS_BY_EFFORT = {
-    "high": "Gemini 3.5 Flash (High)",
-    "medium": "Gemini 3.5 Flash (Medium)",
-    "low": "Gemini 3.5 Flash (Low)",
+    "high": "Gemini 3.6 Flash (High)",
+    "medium": "Gemini 3.6 Flash (Medium)",
+    "low": "Gemini 3.6 Flash (Low)",
 }
-AGY_DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
+AGY_DEFAULT_MODEL = "Gemini 3.6 Flash (High)"
 AGY_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
 

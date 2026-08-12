@@ -1,17 +1,17 @@
 ---
 name: agy-gemini-3-1-pro
-description: Native Google Antigravity Gemini 3.1 Pro (High) worker subagent, served through CLIProxyAPI on the agy account's Gemini quota. Slower/harder Gemini tier — long-context analysis, knowledge-dense reasoning, multimodal/research, ultra-long recall. Owner guidance: use for slower/harder applications (use agy-gemini-3-5-flash for speed). Use when grok-4.6 xhigh is capped/unavailable or the owner explicitly asks for agy. Proxy-backed sessions only.
+description: Native Google Antigravity Gemini 3.1 Pro (High) worker subagent, served through CLIProxyAPI on the agy account's Gemini quota. Slower/harder Gemini tier — long-context analysis, knowledge-dense reasoning, multimodal/research, ultra-long recall. Owner guidance: use for slower/harder applications (use agy-gemini-3-6-flash for speed). Use when grok-4.6 xhigh is capped/unavailable or the owner explicitly asks for agy. Proxy-backed sessions only.
 model: agy-gemini-3-1-pro[1m]
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
 <!-- ROUTING: harness priority is grok-4.6 xhigh FIRST; agy is the fallback (grok capped /
 explicit request). Owner ranks this #3 among agy (below the two Claude models). NOTE:
-for pure AGENTIC-coding throughput, agy-gemini-3-5-flash can beat 3.1 Pro
+for pure AGENTIC-coding throughput, agy-gemini-3-6-flash can beat 3.1 Pro
 (Terminal-Bench 2.1 ~76% vs ~70%); 3.1 Pro wins pure reasoning / long-context / research.
-Owner rule of thumb: 3.5 Flash = speedy operations, 3.1 Pro = slower/harder work. -->
+Owner rule of thumb: 3.6 Flash = speedy operations, 3.1 Pro = slower/harder work. -->
 
-<!-- QUOTA GROUP: shares the "Gemini" weekly + 5-hour bucket with agy-gemini-3-5-flash
+<!-- QUOTA GROUP: shares the "Gemini" weekly + 5-hour bucket with agy-gemini-3-6-flash
 (NOT per-model). This bucket is SEPARATE from the Claude/GPT bucket, so agy-gemini-* is
 the correct fallback once the agy Claude models are capped. Gemini rides free quota
 (project/preview switch on exhaustion) and does NOT burn Google One AI credits. -->

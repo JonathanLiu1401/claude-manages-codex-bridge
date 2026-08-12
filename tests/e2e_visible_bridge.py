@@ -1174,18 +1174,18 @@ def _wait_agy_completed(run_dir: Path, markers: list[str], timeout_s: int = 180)
 
 
 def case_agy_effort_unit() -> dict[str, Any]:
-    assert bridge._agy_model_for_effort("high") == "Gemini 3.5 Flash (High)", bridge._agy_model_for_effort("high")
-    assert bridge._agy_model_for_effort("HIGH") == "Gemini 3.5 Flash (High)", bridge._agy_model_for_effort("HIGH")
-    assert bridge._agy_model_for_effort("medium") == "Gemini 3.5 Flash (Medium)", bridge._agy_model_for_effort("medium")
-    assert bridge._agy_model_for_effort("low") == "Gemini 3.5 Flash (Low)", bridge._agy_model_for_effort("low")
+    assert bridge._agy_model_for_effort("high") == "Gemini 3.6 Flash (High)", bridge._agy_model_for_effort("high")
+    assert bridge._agy_model_for_effort("HIGH") == "Gemini 3.6 Flash (High)", bridge._agy_model_for_effort("HIGH")
+    assert bridge._agy_model_for_effort("medium") == "Gemini 3.6 Flash (Medium)", bridge._agy_model_for_effort("medium")
+    assert bridge._agy_model_for_effort("low") == "Gemini 3.6 Flash (Low)", bridge._agy_model_for_effort("low")
     assert bridge._agy_model_for_effort("") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("")
     assert bridge._agy_model_for_effort("xhigh") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("xhigh")
     assert bridge._agy_model_for_effort("bogus") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("bogus")
-    assert bridge.AGY_DEFAULT_MODEL == "Gemini 3.5 Flash (High)", bridge.AGY_DEFAULT_MODEL
+    assert bridge.AGY_DEFAULT_MODEL == "Gemini 3.6 Flash (High)", bridge.AGY_DEFAULT_MODEL
     assert bridge.AGY_MODELS_BY_EFFORT == {
-        "high": "Gemini 3.5 Flash (High)",
-        "medium": "Gemini 3.5 Flash (Medium)",
-        "low": "Gemini 3.5 Flash (Low)",
+        "high": "Gemini 3.6 Flash (High)",
+        "medium": "Gemini 3.6 Flash (Medium)",
+        "low": "Gemini 3.6 Flash (Low)",
     }, bridge.AGY_MODELS_BY_EFFORT
     return {"ok": True}
 
@@ -1229,7 +1229,7 @@ def case_agy_dry_run_args() -> dict[str, Any]:
     assert metadata["resume_continue"] is False, metadata
 
     assert "agy" in script, script
-    assert "Gemini 3.5 Flash (High)" in script, script
+    assert "Gemini 3.6 Flash (High)" in script, script
     assert "--dangerously-skip-permissions" in script, script
     assert "--add-dir" in script, script
 
