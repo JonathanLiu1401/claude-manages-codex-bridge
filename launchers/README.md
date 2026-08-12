@@ -6,7 +6,7 @@ main-model profile. Deploy to a PATH dir (e.g. `%USERPROFILE%\.local\bin`).
 | Launcher | World | Endpoint | Models | Remote Control |
 |---|---|---|---|---|
 | `claude` (plain) | `~/.claude` | CLIProxyAPI (via settings env) | all proxy models | no (gateway) |
-| `clg.cmd` | `~/.claude` | CLIProxyAPI | starts on grok-4.5 (500k window) | no |
+| `clg.cmd` | `~/.claude` | CLIProxyAPI | starts on grok-4.6 (500k window) | no |
 | `clx.cmd` | `~/.claude-clx` | CLIProxyAPI (API-key mode) | all proxy models | no |
 | `cld.cmd` | `~/.claude-direct` | api.anthropic.com (forced) | Claude models only | **yes** |
 
@@ -21,4 +21,4 @@ Notes:
   (`projects` -> `~/.claude/projects`) once no cld session holds the folder.
 - Grok context sizing comes from `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` in
   the settings env (see main README) — `clg.cmd` just starts on bare
-  `grok-4.5` and inherits it.
+  `grok-4.6` and inherits it.

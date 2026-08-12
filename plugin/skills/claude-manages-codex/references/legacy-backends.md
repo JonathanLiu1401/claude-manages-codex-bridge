@@ -6,16 +6,16 @@
 mechanics for secondary/legacy paths when you have already decided native
 cannot apply.
 
-- **grok-4.5 via grok CLI** (legacy path, kept for grok-CLI-only extras):
-  `grok --prompt-file ... --output-format streaming-json`; tools
+- **grok-4.6 xhigh via grok CLI** (legacy path, kept for grok-CLI-only extras):
+  `grok --prompt-file ... --output-format streaming-json -m grok-4.6 --reasoning-effort xhigh`; tools
   `start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker` /
   `start_visible_first_mate_grok_pool` / `steer_visible_grok_run`. Use when you
   want **Parallel Competition Mode** (`competition_agents`, default 16 in-turn
   competitors) and the **Mandatory Parallel Work-Checker** gate - those
-  injections are grok-CLI-only. Caveat: grok-4.5's `--reasoning-effort` flag
-  accepts only `high`/`medium`/`low`; `xhigh` = grok's config default reached by
-  omitting the flag, so the bridge omits it by default and passes only
-  low/medium/high overrides.
+  injections are grok-CLI-only. Grok 4.6 xhigh fully supersedes grok 4.5.
+  xhigh is available in both grok Build CLI and cursor-agent CLI
+  (`cursor-grok-4.6-xhigh` with Cursor Max Mode on). `~/.grok/config.toml`
+  already sets `default = "grok-4.6"` and `default_reasoning_effort = "xhigh"`.
 - **Antigravity / Gemini 3.5 Flash (High)** (on request): Google `agy` CLI,
   plain-text `agy -p "..." --model "Gemini 3.5 Flash (High)"
   --dangerously-skip-permissions`; tools `start_visible_agy_worker` etc. Strong

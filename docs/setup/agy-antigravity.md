@@ -100,7 +100,7 @@ GET http://127.0.0.1:8317/v1/models
   (consumed by `force-mapping`). If an alias is MISSING and its upstream id is back, the
   alias failed to bind - see the exact-catalog-id gotcha above.
 - `claude-sonnet-4-6` is now `owned_by: anthropic` only (collision split); `claude-opus-5`,
-  `claude-sonnet-5`, `grok-4.5` still present.
+  `claude-sonnet-5`, `grok-4.6` still present.
 - Probe the real subagent path (`POST /v1/messages`, `model: <alias>`, tiny `max_tokens`):
   expect 200 with the response `model` echoing the alias (force-mapping working). Because
   each `-agy` alias is defined **only** under `oauth-model-alias.antigravity`, no other
@@ -124,8 +124,8 @@ quota-fallback ladder must **hop buckets** - dropping opus→sonnet buys nothing
 are capped. Opus can burn Google One AI credits after free-tier exhaustion
 (`quota-exceeded.antigravity-credits: true`); Gemini rides free quota.
 
-Routing: **grok-4.5 routes first**; **Claude Sonnet subagents are the fallback**; **Codex is DISABLED**;
-use the **agy (Gemini) ladder on grok-exhaustion or explicit request** (owner: grok-4.5 > agy Gemini). Only the Gemini subagents are wired - the Claude/GPT bucket's limits are too low.
+Routing: **grok-4.6 routes first**; **Claude Sonnet subagents are the fallback**; **Codex is DISABLED**;
+use the **agy (Gemini) ladder on grok-exhaustion or explicit request** (owner: grok-4.6 > agy Gemini). Only the Gemini subagents are wired - the Claude/GPT bucket's limits are too low.
 Capability order gemini-3.1-pro > gemini-3.5-flash,
 with the owner's rule of thumb: gemini-3.5-flash = speedy ops, gemini-3.1-pro =
 slower/harder (Flash actually edges Pro on agentic-coding throughput benchmarks).

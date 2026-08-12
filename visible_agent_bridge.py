@@ -2777,29 +2777,27 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
 
 
 # --- Grok worker backend (added 2026-07-14) ---
-# Adds a Grok (grok-4.5) visible worker backend alongside the existing Codex
+# Adds a Grok (grok-4.6) visible worker backend alongside the existing Codex
 # backend. Codex is left completely untouched above this line; every symbol
 # below is new. See plugin/skills/claude-manages-codex/SKILL.md, section
 # "Grok Worker Backend (added 2026-07-14)", for the routing doctrine.
 
 GROK = Path(r"C:\Users\jonny\.grok\bin\grok.exe")
-GROK_MODEL = "grok-4.5"
-# grok-4.5's --reasoning-effort flag only accepts these three values; xhigh
-# and max are rejected outright by the CLI ("unknown effort level"). Grok's
-# own config sets default_reasoning_effort = "xhigh", which is applied only
-# when the flag is omitted, so the owner's desired default (grok-4.5 at
-# xhigh) is reached by NOT passing --reasoning-effort at all.
-GROK_CLI_REASONING_EFFORTS = ("low", "medium", "high")
+GROK_MODEL = "grok-4.6"
+# grok-4.6 xhigh fully supersedes grok 4.5. xhigh is a first-class
+# --reasoning-effort value in grok Build CLI. Config default is also
+# default_reasoning_effort = "xhigh" in ~/.grok/config.toml.
+GROK_CLI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
 GROK_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
 
 def _grok_effort_flag(requested: str) -> list[str]:
-    """Return the --reasoning-effort flag for grok-4.5, or [] to inherit xhigh.
+    """Return the --reasoning-effort flag for grok-4.6, or [] to inherit xhigh.
 
-    Returns ["--reasoning-effort", e] iff e.lower() is one of low/medium/high.
-    Any other value (including "xhigh", "max", or empty) returns [], which
-    omits the flag so the grok-4.5 CLI falls back to its config default
-    (default_reasoning_effort = "xhigh" in ~/.grok/config.toml).
+    Returns ["--reasoning-effort", e] iff e.lower() is one of
+    low/medium/high/xhigh. Any other value (including "max" or empty)
+    returns [], which omits the flag so the grok-4.6 CLI falls back to its
+    config default (default_reasoning_effort = "xhigh" in ~/.grok/config.toml).
     """
     candidate = (requested or "").strip().lower()
     if candidate in GROK_CLI_REASONING_EFFORTS:
@@ -2827,7 +2825,7 @@ def _grok_captain_report_note(run_dir: Path) -> str:
 
 def _grok_rigor_contract() -> str:
     """Mandatory anti-fixation / self-verification contract injected into every
-    grok-4.5 worker prompt. grok-4.5 is a fast coder but weak at reasoning and at
+    grok-4.6 worker prompt. grok-4.6 is a fast coder but weak at reasoning and at
     pressure-testing its own work: it tunnel-visions on the first idea, skips edge
     cases and error paths, and declares 'done' without executing anything. This
     contract forces the opposite, and warns it that the captain reviews adversarially."""
@@ -2861,10 +2859,10 @@ def _grok_rigor_contract() -> str:
 
 
 def _grok_competition_contract(max_agents: int) -> str:
-    """Parallel-competition capability injected into grok worker prompts. grok-4.5 has native
+    """Parallel-competition capability injected into grok worker prompts. grok-4.6 has native
     parallel subagents; for hard problems the root worker runs a competition INSIDE its single
     turn (one terminal): spawn up to max_agents diverse subagents attempting the full task, then
-    act as judge and compile the best solution. This is a grok-4.5 analog of the grok-4.20
+    act as judge and compile the best solution. This is a grok-4.6 analog of the grok-4.20
     multi-agent harness. Usage is abundant, so competition is encouraged for genuinely hard work.
     Only injected when max_agents >= 2."""
     n = max(2, min(int(max_agents), 16))
@@ -2893,7 +2891,7 @@ def _grok_competition_contract(max_agents: int) -> str:
 
 
 def _grok_work_checker_contract() -> str:
-    """Mandatory parallel work-checker gate injected into every grok worker prompt. grok-4.5's
+    """Mandatory parallel work-checker gate injected into every grok worker prompt. grok-4.6's
     worst habit is declaring 'done' without testing; this forces a full parallel adversarial audit
     of its OWN finished work (native subagents, one terminal) before it may report done, and to fix
     every proven finding and re-check until clean."""
@@ -3415,7 +3413,7 @@ def start_visible_grok_worker(
     self_check: bool = False,
     competition_agents: int = 16,
 ) -> dict[str, Any]:
-    """Launch a visible Grok (grok-4.5) exec worker in a separate PowerShell window and save logs.
+    """Launch a visible Grok (grok-4.6) exec worker in a separate PowerShell window and save logs.
 
     sandbox="read-only" strictly enforces no-edit by stripping Grok's Write/Edit
     tools (Bash kept for inspection). best_of_n>1 runs the initial task N ways in
@@ -3597,7 +3595,7 @@ def start_visible_first_mate_grok_pool(
     """Launch a visible Grok root session with native subagents enabled to act as first mate.
 
     Unlike the Codex first-mate pool (which fans out to separate Codex CLI
-    subagent processes), this launches a single grok-4.5 process with its
+    subagent processes), this launches a single grok-4.6 process with its
     native subagent capability left enabled (no --no-subagents flag), so Grok
     itself manages any internal fan-out.
     """
@@ -4675,7 +4673,7 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
 # (`claude -p --output-format stream-json`) instead of opening a visible
 # terminal/TUI per agent. Routed through a local CLIProxyAPI gateway
 # (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN), one worker can run ANY
-# provider's model — claude-opus-5, claude-sonnet-5, grok-4.5, kimi-k2.5,
+# provider's model — claude-opus-5, claude-sonnet-5, grok-4.6, kimi-k2.5,
 # gpt-5-codex, ... — selected per spawn via the `model` argument, which is
 # genuinely honored (unlike the Codex backend's recorded-but-ignored pattern).
 # The runner (claude_worker_runner.py, deployed beside this file) is plain
@@ -4798,7 +4796,7 @@ def start_claude_worker(
     run directory (events.jsonl, display.log, status.json, captain_reports/).
     With use_proxy=True (default) the worker is routed through the local
     CLIProxyAPI gateway, so `model` may be any model the proxy serves —
-    e.g. claude-opus-5, claude-sonnet-5, claude-fable-5, grok-4.5 — and it is
+    e.g. claude-opus-5, claude-sonnet-5, claude-fable-5, grok-4.6 — and it is
     honored exactly as passed. Steering, captain-help, and captain-report
     tooling work identically to the other backends. Cross-platform.
     """

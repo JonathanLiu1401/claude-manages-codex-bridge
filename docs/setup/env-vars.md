@@ -24,11 +24,11 @@ by `cld.cmd`.
 | Var | Purpose | Failure without it |
 |---|---|---|
 | `ANTHROPIC_BASE_URL` | Routes the session through the local CLIProxyAPI gateway in **OAuth mode** (no auth-token var — the CLI sends its rotating claude.ai OAuth bearer; the proxy must run `api-keys: []` allow-all, loopback-only). | No multi-provider models. Note: settings-env wins over process env, so a "direct" escape hatch needs its own config dir + `--settings` pin, not an env override. |
-| `ENABLE_TOOL_SEARCH` | Client-side deferred tool loading: MCP tool schemas are NOT sent per request (~14 tools on the wire instead of 500+); the model loads schemas on demand via a ToolSearch tool. | grok-4.5 hard-rejects any request with >350 tool definitions (`Maximum tools limit reached`). Also saves ~200k tokens of per-session MCP context. |
+| `ENABLE_TOOL_SEARCH` | Client-side deferred tool loading: MCP tool schemas are NOT sent per request (~14 tools on the wire instead of 500+); the model loads schemas on demand via a ToolSearch tool. | grok-4.6 hard-rejects any request with >350 tool definitions (`Maximum tools limit reached`). Also saves ~200k tokens of per-session MCP context. |
 | `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE}_MODEL` | Makes TYPED aliases (`/model fable`, `--model opus`) resolve to the 1M `[1m]` variants. The interactive /model picker already picks 1M; typed aliases otherwise resolve to bare 200k variants. | Typed model switches silently land on 200k context. There is NO `ANTHROPIC_DEFAULT_GROK_MODEL` — the CLI ignores it. |
-| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | Sets the client-side context window for model IDs that do NOT start with `claude-` (checked after the `[1m]`/native-1M paths). Gives grok-4.5 its real ~500k window — main model, subagents, and workflow agents alike — with percentage-based autocompaction scheduled against it. Claude models keep their own catalog windows. | Unknown model IDs are budgeted at 200k (client blocks prompts past it). **Undocumented internal of the 2.1.21x builds — re-verify after every Claude Code update** (`/context` in a grok session should show ~500k). Caveat: applies to ALL non-Claude model IDs in the process; fine when grok is the only non-Claude model in play. |
+| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | Sets the client-side context window for model IDs that do NOT start with `claude-` (checked after the `[1m]`/native-1M paths). Gives grok-4.6 its real ~500k window — main model, subagents, and workflow agents alike — with percentage-based autocompaction scheduled against it. Claude models keep their own catalog windows. | Unknown model IDs are budgeted at 200k (client blocks prompts past it). **Undocumented internal of the 2.1.21x builds — re-verify after every Claude Code update** (`/context` in a grok session should show ~500k). Caveat: applies to ALL non-Claude model IDs in the process; fine when grok is the only non-Claude model in play. |
 
-Note: bare model aliases like `grok-4.5` without `[1m]` re-trigger the 350-tool blocker and must be avoided as the main model; canonical Claude IDs carry `[1m]`.
+Note: bare model aliases like `grok-4.6` without `[1m]` re-trigger the 350-tool blocker and must be avoided as the main model; canonical Claude IDs carry `[1m]`.
 
 ## Related, deliberately NOT set
 
@@ -95,7 +95,7 @@ So the picker is built ONLY from static, env-defined entries (no fetch, no auth)
    agy-gemini-3-1-pro[1m]` still rendered "Haiku 4.5", not Gemini. (This is why the Opus slot can be
    `claude-opus-5[1m]` but no tier slot can hold grok/gemini.)
 2. **One custom slot** — `ANTHROPIC_CUSTOM_MODEL_OPTION` (+ `_NAME`/`_DESCRIPTION`/
-   `_SUPPORTED_CAPABILITIES`). Accepts **any** model, no validation. **VERIFIED**: `grok-4.5`
+   `_SUPPORTED_CAPABILITIES`). Accepts **any** model, no validation. **VERIFIED**: `grok-4.6`
    rendered as a picker row. Singular — there is no `_2`.
 3. `availableModels`+`enforceAvailableModels` only TRIM the built list; `modelOverrides` remaps a
    claude id. Neither can ADD a non-Claude model.
@@ -111,7 +111,7 @@ showed 500k in `/context`; `agy-gemini-3-5-flash[1m]` → 1M. So pin/select Gemi
 **Grok stays BARE** — its real window is ~500k, so `[1m]` would over-budget it. (The agy Gemini
 subagents already bake `[1m]` into their frontmatter.)
 
-**Current setup (2026-07-19):** custom slot = `grok-4.5` ("Grok 4.5", ~500k); Gemini 3.5 Flash via
+**Current setup (2026-08-12):** custom slot = `grok-4.6` ("Grok 4.6 xhigh", ~500k); Gemini 3.5 Flash via
 `/model agy-gemini-3-5-flash[1m]` or the `model` pin at 1M; Opus/Sonnet slots = real Claude (1M),
 Fable = real Claude (**protected** — usage credits), Haiku = default. Env is read at bootstrap → a
 FULL session restart applies changes (`/reload-plugins` does not).

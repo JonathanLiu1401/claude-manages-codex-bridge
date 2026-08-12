@@ -15,7 +15,7 @@ captain-help mailboxes.
 **Live running code vs. this repo:** the authoritative running bridge is `C:/Users/jonny/.agent-bridge/visible_agent_bridge.py` + `claude_worker_runner.py` (NOT a git-tracked directory). This git repo is the source/reference; changes here must be synced into `~/.agent-bridge/` to take effect. The installed skill lives at the double-nested `~/.claude/skills/claude-manages-codex/skills/claude-manages-codex/SKILL.md`.
 
 **Worker backends (2026-07-15, windowless paths added 2026-07-18):** the preferred worker MODEL is
-**grok-4.5** (owner is on SuperGrok Heavy); the preferred SPAWN PATHS are the **native grok subagent**
+**grok-4.6** (owner is on SuperGrok Heavy); the preferred SPAWN PATHS are the **native grok subagent**
 (Agent tool, `subagent_type: "grok"`, proxy-backed sessions — see `plugin/agents/grok.md`) and
 **`start_claude_worker`** (detached headless `claude -p` through the local **CLIProxyAPI** gateway on
 127.0.0.1:8317; the `model` arg honors any proxy model). **Claude Sonnet** subagents are the fallback;
@@ -31,7 +31,7 @@ Codex-centric because Codex was the original backend — read "Codex" as "the wo
 
 ## Tools exposed
 
-> ⚠️ **Codex is DISABLED (owner 2026-07-15, ChatGPT login revoked).** The Codex worker tools below remain documented for a possible future revival only — do not route to Codex. Preferred worker today is grok-4.5 (windowless native subagent or `start_claude_worker`).
+> ⚠️ **Codex is DISABLED (owner 2026-07-15, ChatGPT login revoked).** The Codex worker tools below remain documented for a possible future revival only — do not route to Codex. Preferred worker today is grok-4.6 (windowless native subagent or `start_claude_worker`).
 
 - `start_visible_codex_worker` - launch the default single-worker `codex exec --json` path from a final prompt in a visible window with saved structured logs.
 - `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch the default non-interactive visible CLI worker.
@@ -67,7 +67,7 @@ Codex is the historically most-documented backend in this README, but the bridge
 backends behind the same run-dir mechanics: **native grok subagents** (Agent tool, `subagent_type: "grok"`,
 proxy-backed sessions; definition in `plugin/agents/grok.md`), **claude_worker** (`start_claude_worker` /
 `steer_claude_run` — detached headless `claude -p` via the local CLIProxyAPI gateway, any proxy model,
-implemented by `claude_worker_runner.py`), **Grok CLI** (`grok-4.5`, legacy visible-window, kept for
+implemented by `claude_worker_runner.py`), **Grok CLI** (`grok-4.6`, legacy visible-window, kept for
 Parallel Competition Mode + the Mandatory Parallel Work-Checker gate), **Claude Sonnet** (in-process
 `Agent` tool, always available), **Codex** (`gpt-5.6-sol`, disabled), and **Antigravity/agy** (preferred
 native Gemini subagents: `agy-gemini-3-1-pro` / `agy-gemini-3-5-flash` via
@@ -83,7 +83,7 @@ Context windows for grok workers (verified 2026-07-19 on Claude Code 2.1.21x): C
 unknown model IDs at 200k. Deployments should set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` (full
 required env block + rationale: `docs/setup/env-vars.md`) in the
 settings.json `env` block of proxy-backed worlds — it applies only to non-`claude-` model IDs and gives
-grok subagents/workers grok-4.5's real ~500k window with normal autocompaction (undocumented internal —
+grok subagents/workers grok-4.6's real ~500k window with normal autocompaction (undocumented internal —
 re-verify after CLI version bumps). Do NOT use a `[1m]` suffix in **grok** agent frontmatter (grok's real window is ~500k; `[1m]` would overshoot it and is stripped in subagent resolution). For Claude main-model launch profiles, `[1m]` IS correct — the canonical Claude model IDs in the launch configs (clx, cld) carry the `[1m]` suffix to request the 1M context window, and `autoCompactWindow` is set to `1000000`. `launchers/clg.cmd` starts a grok **main-model** session
 the same way. Related session-wide requirements: `ENABLE_TOOL_SEARCH=true` (grok rejects >350 tool
 definitions per request; deferred loading sends ~14), and Remote Control is mutually exclusive with any
@@ -94,7 +94,7 @@ its fetch needs a static auth token OAuth lacks, and it filters to `claude`/`ant
 Reach the rest via typed `/model <id>` or `clg`; full detail in the "Model selector / picker
 configuration" section of `docs/setup/env-vars.md`.
 
-Codex is currently **DISABLED** (ChatGPT login revoked) — do not route to it. Use **Antigravity (agy)** as a fallback when grok-4.5 is exhausted/capped, or when explicitly requested — it is a documented fallback path, not last-resort-only. Always call `check_worker_backends` first to confirm a backend is usable.
+Codex is currently **DISABLED** (ChatGPT login revoked) — do not route to it. Use **Antigravity (agy)** as a fallback when grok-4.6 is exhausted/capped, or when explicitly requested — it is a documented fallback path, not last-resort-only. Always call `check_worker_backends` first to confirm a backend is usable.
 
 ### Grok backend
 
@@ -106,7 +106,7 @@ New tools, mirroring their Codex counterparts: `start_visible_grok_worker`,
 uses.
 
 - Invocation: `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd>
-  --permission-mode bypassPermissions -m grok-4.5 [--reasoning-effort low|medium|high] [-r <sessionId>]`.
+  --permission-mode bypassPermissions -m grok-4.6 [--reasoning-effort low|medium|high] [-r <sessionId>]`.
   (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt; combining them errors
   live with `a value is required for '--single <PROMPT>'`, so the runner uses `--prompt-file` alone.)
 - Effort caveat: the CLI only accepts `low`/`medium`/`high` on `--reasoning-effort`; `xhigh`/`max` are
@@ -204,7 +204,7 @@ The Claude Code plugin that drives this bridge lives under [`plugin/`](plugin/):
 
 - `plugin/.claude-plugin/plugin.json` - plugin manifest.
 - `plugin/.mcp.json` - registers the `codex-worker` (Codex MCP) and `agent-visibility` (this script) servers.
-- `plugin/skills/claude-manages-codex/SKILL.md` - the `claude-manages-codex` skill: Claude as executive captain/architect/reviewer, delegating to a worker backend (windowless grok-4.5 by default, Codex historically). Includes the routing mandate that sends parallel-agent fan-out and implementation work off the manager model to preserve Claude tokens.
+- `plugin/skills/claude-manages-codex/SKILL.md` - the `claude-manages-codex` skill: Claude as executive captain/architect/reviewer, delegating to a worker backend (windowless grok-4.6 by default, Codex historically). Includes the routing mandate that sends parallel-agent fan-out and implementation work off the manager model to preserve Claude tokens.
 - `plugin/skills/claude-manages-codex/references/legacy-backends.md` - per-backend mechanics for the legacy/on-request worker backends (grok CLI, Antigravity/agy, disabled Codex).
 
 The Codex-side advisor plugin lives under [`codex-plugin/`](codex-plugin/):

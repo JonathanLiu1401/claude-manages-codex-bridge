@@ -1,11 +1,11 @@
 ---
 name: agy-gemini-3-5-flash
-description: Native Google Antigravity Gemini 3.5 Flash (High) worker subagent, served through CLIProxyAPI on the agy account's Gemini quota. Fast/cheap high-throughput tier — rapid agentic loops, high tool-use throughput, bulk work. Owner guidance: use for the most SPEEDY operations (use agy-gemini-3-1-pro for slower/harder work). Use when grok-4.5 is capped/unavailable or the owner explicitly asks for agy. Proxy-backed sessions only.
+description: Native Google Antigravity Gemini 3.5 Flash (High) worker subagent, served through CLIProxyAPI on the agy account's Gemini quota. Fast/cheap high-throughput tier — rapid agentic loops, high tool-use throughput, bulk work. Owner guidance: use for the most SPEEDY operations (use agy-gemini-3-1-pro for slower/harder work). Use when grok-4.6 xhigh is capped/unavailable or the owner explicitly asks for agy. Proxy-backed sessions only.
 model: agy-gemini-3-5-flash[1m]
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
-<!-- ROUTING: harness priority is grok-4.5 FIRST; agy is the fallback (grok capped /
+<!-- ROUTING: harness priority is grok-4.6 xhigh FIRST; agy is the fallback (grok capped /
 explicit request). Owner ranks this #4 among agy (fastest, cheapest). For pure agentic
 throughput it can EDGE agy-gemini-3-1-pro (Terminal-Bench 2.1 ~76% vs ~70%); prefer it
 for fast tool-use loops and bulk edits, and 3.1 Pro for deep reasoning / long-context. -->

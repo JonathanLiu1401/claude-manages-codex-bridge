@@ -26,7 +26,7 @@ Single source of truth. `id` is the wire id; `window` is the client-side context
 {
   "roles": {
     "opus":   { "id": "claude-opus-5", "window": "[1m]" },
-    "grok":   { "id": "grok-4.5",      "window": "" }
+    "grok":   { "id": "grok-4.6",      "window": "" }
   },
   "bindings": { "worker_default": "opus", "advisor": "opus",
                 "custom_slot": "grok", "advisor_alias_form": true }
@@ -80,7 +80,7 @@ means `git checkout` silently mutates the live runtime mid-session.
 - **Dated snapshots are excluded from promotion.** The catalog mixes `claude-opus-5` with
   `claude-opus-4-1-20250805`. Sorting naively ranks the dated snapshot higher because
   `20250805` is a large number. Ids matching a trailing `-\d{8}` are skipped, and versions
-  are compared as int tuples: `opus-4-8` -> `(4,8)`, `opus-5` -> `(5,0)`.
+  are compared as int tuples: `opus-5` -> `(4,8)`, `opus-5` -> `(5,0)`.
 - **Only Claude families are version-compared** (opus / sonnet / haiku / fable).
 - **grok and agy are informational only.** The `agy-*` ids are hand-authored aliases in
   `config.yaml` (`oauth-model-alias.antigravity` + `force-mapping`). A newer catalog entry

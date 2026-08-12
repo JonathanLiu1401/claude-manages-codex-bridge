@@ -7,7 +7,7 @@ description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); 
 
 > **Rename note (2026-07-15, updated 2026-07-20):** this skill is branded the **Multi-Agentic Harness**. Its internal id / MCP tool prefix / install directory remain `claude-manages-codex` for compatibility. Much of the older prose further down still mentions Codex / `start_visible_*` because those were the original backends - **IGNORE those defaults**. The authoritative spawn policy is the **Mandatory Spawn Path** section immediately below. Codex is DISABLED. Visible-window tools are legacy/on-request only.
 
-Use Claude's active manager model as captain, executive architect, QA tech lead, and reviewer. Delegate low-level work to workers - by default **grok-4.5 as a native Agent-tool subagent**.
+Use Claude's active manager model as captain, executive architect, QA tech lead, and reviewer. Delegate low-level work to workers - by default **grok-4.6 as a native Agent-tool subagent**.
 
 ## Mandatory Spawn Path (2026-07-20 - hard rule, overrides older sections)
 
@@ -18,7 +18,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 | **1 (DEFAULT)** | Proxy-backed session (`clx`, or plain merged with CLIProxyAPI) and default worker | `Agent` tool, `subagent_type: "grok"` | `SendMessage` |
 | **1b** | Grok capped/exhausted, or owner asks for agy/Gemini | `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` (harder) or `"agy-gemini-3-5-flash"` (fast) | `SendMessage` |
 | **1c** | Proxy/grok unavailable, or task needs Claude-only capability | `Agent` tool, `model: sonnet` (or Explore / general-purpose) | `SendMessage` / follow-up Agent |
-| **2 (secondary)** | Native cannot apply: non-proxy session that still needs grok; long-running run-dir protocol; explicit headless multi-turn with `steer_claude_run` | `start_claude_worker(model="grok-4.5", ...)` then arm `watch_command` | `steer_claude_run` |
+| **2 (secondary)** | Native cannot apply: non-proxy session that still needs grok; long-running run-dir protocol; explicit headless multi-turn with `steer_claude_run` | `start_claude_worker(model="grok-4.6", ...)` then arm `watch_command` | `steer_claude_run` |
 | **3 (legacy, on request only)** | Owner asks to watch a terminal, OR task needs grok-CLI-only Parallel Competition Mode / Work-Checker | `start_visible_grok_worker` / pool / haiku-composed | `steer_visible_grok_run` |
 | **NEVER** | Codex path | `start_visible_codex_*`, `codex`, `codex-reply`, interactive Codex TUI | - disabled |
 
@@ -33,11 +33,11 @@ Parallel fan-out: issue multiple `Agent` calls in one message (or a Workflow). D
 ## Core Model
 
 - Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, active steering, and final review. In the first-mate flow, Claude is the captain.
-- **The worker owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work.** The default worker is **grok-4.5 via native `Agent` (`subagent_type: "grok"`)**. Fallbacks: agy Gemini native subagents, then Claude Sonnet subagents. **Codex is disabled.**
+- **The worker owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work.** The default worker is **grok-4.6 via native `Agent` (`subagent_type: "grok"`)**. Fallbacks: agy Gemini native subagents, then Claude Sonnet subagents. **Codex is disabled.**
 - **Default orchestration surface is the `Agent` tool and Workflows** (native subagents: `grok`, `agy-*`, Sonnet). Secondary: `start_claude_worker`. Legacy: `start_visible_*` only for CLI-only extras or on request.
-- Claude must review worker output and local diffs before claiming completion - antagonistically for grok (see "grok-4.5 rigor and mandatory adversarial review").
+- Claude must review worker output and local diffs before claiming completion - antagonistically for grok (see "grok-4.6 rigor and mandatory adversarial review").
 - Prefer delegating to a worker over doing implementation in the manager loop.
-- The Claude manager model does not write implementation code by default. It writes plans, contracts, constraints, acceptance tests, review findings, steering notes, and the final user response. Route code edits to the worker (default grok-4.5 native) unless the edit is tiny, every worker path is unavailable, or the user explicitly asks Claude to code directly.
+- The Claude manager model does not write implementation code by default. It writes plans, contracts, constraints, acceptance tests, review findings, steering notes, and the final user response. Route code edits to the worker (default grok-4.6 native) unless the edit is tiny, every worker path is unavailable, or the user explicitly asks Claude to code directly.
 - Claude sets the worker's reasoning effort per task by judged difficulty. Token savings come from routing work off the manager and matching effort to difficulty. (Effort ladders differ by backend - grok CLI caps at `low`/`medium`/`high`; `start_claude_worker` and agy accept `low`…`max`. Native Agent subagents inherit the session effort unless the Agent call sets one.)
 - Every new or resumed worker receives session context. For native subagents, put the compact brief in the Agent prompt. For headless/visible runs, pass `session_context`. Tell the worker to use `read-past-sessions` when it needs full transcript history.
 - Workers need enough tool access to do real work (skills, SSH, CLIs). For native subagents, encode write vs read-only intent in the brief. For headless/visible runners, `sandbox` maps permission intent: `read-only` means no edits (enforced for grok/claude_worker), not a crippled process sandbox.
@@ -55,7 +55,7 @@ Supported backends (in preferred order):
 - **Native grok subagent (DEFAULT)** - `Agent` tool, `subagent_type: "grok"`, defined by `agents/grok.md`. Proxy-backed sessions only. See "Native grok subagent backend" below.
 - **Native agy Gemini subagents (next on ladder)** - `Agent` tool, `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"`. Separate agy quota. See "Native agy subagent backend" below.
 - **Claude Sonnet native subagent (always-available fallback)** - `Agent` tool, `model: sonnet`. No CLI, no auth, no run-dir machinery.
-- **`start_claude_worker` (SECONDARY headless path)** - detached headless `claude -p` via CLIProxyAPI; use only when native Agent spawn does not apply (non-proxy needing grok, explicit run-dir / `steer_claude_run` multi-turn). Tool default model is `claude-opus-5` - pass `model="grok-4.5"` explicitly for default grok work. See "Headless claude_worker backend" below.
+- **`start_claude_worker` (SECONDARY headless path)** - detached headless `claude -p` via CLIProxyAPI; use only when native Agent spawn does not apply (non-proxy needing grok, explicit run-dir / `steer_claude_run` multi-turn). Tool default model is `claude-opus-5` - pass `model="grok-4.6"` explicitly for default grok work. See "Headless claude_worker backend" below.
 - **Grok CLI (legacy visible-window)** - only for Parallel Competition Mode / Work-Checker gate, or when the owner asks for a visible terminal. `start_visible_grok_worker`, `start_visible_haiku_composed_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`. See `references/legacy-backends.md`.
 - **Antigravity CLI (legacy visible-window)** - `start_visible_agy_worker` etc. **On request only.** Prefer native agy subagents.
 - **Codex (gpt-5.6-sol)** - **DISABLED** (owner 2026-07-15: ChatGPT login revoked). Do not route to Codex. Tools remain in code for possible revival only.
@@ -64,29 +64,29 @@ Supported backends (in preferred order):
 
 Unless the owner says otherwise:
 
-1. **Default worker MODEL = grok-4.5. Default SPAWN PATH = native `Agent` subagent** (`subagent_type: "grok"`) in any proxy-backed session.
-2. **Grok exhausted / owner asks for agy** → native `agy-gemini-3-1-pro` or `agy-gemini-3-5-flash` (grok-4.5 still routes first when available).
+1. **Default worker MODEL = grok-4.6. Default SPAWN PATH = native `Agent` subagent** (`subagent_type: "grok"`) in any proxy-backed session.
+2. **Grok exhausted / owner asks for agy** → native `agy-gemini-3-1-pro` or `agy-gemini-3-5-flash` (grok-4.6 still routes first when available).
 3. **Proxy/grok unavailable or Claude-only task** → Claude Sonnet `Agent` subagent.
-4. **Native cannot apply** → `start_claude_worker(model="grok-4.5", ...)` (secondary). Never treat this as the everyday default when native works.
+4. **Native cannot apply** → `start_claude_worker(model="grok-4.6", ...)` (secondary). Never treat this as the everyday default when native works.
 5. **Competition Mode / Work-Checker / "open a terminal"** → legacy `start_visible_grok_*` only.
 6. **Codex** → never.
 7. **Always call `check_worker_backends` before delegating to headless/visible CLI backends.** For native `Agent` spawns in an already-working proxy session, a live proxy is implied; if the native spawn fails (model not served / 350-tool cap / auth), fall down the ladder and tell the user why.
 
 ### Native grok subagent backend (added 2026-07-18)
 
-Spawn with the `Agent` tool, `subagent_type: "grok"`. Defined by `agents/grok.md`: frontmatter pins `model: grok-4.5` and a deliberately small toolset (Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch) - grok-4.5 rejects any request carrying more than 350 tools, and a full plain session can expose far more than that across loaded MCP servers, so the toolset is kept narrow on purpose.
+Spawn with the `Agent` tool, `subagent_type: "grok"`. Defined by `agents/grok.md`: frontmatter pins `model: grok-4.6` and a deliberately small toolset (Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch) - grok-4.6 rejects any request carrying more than 350 tools, and a full plain session can expose far more than that across loaded MCP servers, so the toolset is kept narrow on purpose.
 
 - Appears in Claude Code's own agent list; steer it natively with `SendMessage` (no external process, no window, no `steer_visible_*` tool needed).
-- **Precondition:** only works in a proxy-backed session (the `clx` launcher, or a plain session merged with the proxy) whose endpoint actually serves grok. In a plain direct-Anthropic session grok is not a valid native-subagent model - use `start_claude_worker(model="grok-4.5")` there instead.
+- **Precondition:** only works in a proxy-backed session (the `clx` launcher, or a plain session merged with the proxy) whose endpoint actually serves grok. In a plain direct-Anthropic session grok is not a valid native-subagent model - use `start_claude_worker(model="grok-4.6")` there instead.
 - `agents/grok.md` bakes the Worker Rigor Contract and a no-further-delegation rule directly into the agent's own system prompt (it is itself a spawned worker and must not delegate further, spawn its own subagents, or re-invoke this skill).
-- **Context window (verified 2026-07-19, claude 2.1.21x):** grok subagents and workflow agents get grok-4.5's accurate **~500k window** via `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` in the settings.json `env` block (set in the plain and clx worlds). That undocumented env var applies only to model IDs not starting with `claude-` (checked after the `[1m]`/native-1M paths), so grok resolves to 500k with default percentage-based autocompaction against it while Claude models in the same process keep their own catalog windows. Without it, Claude Code budgets unknown model IDs at 200k, and no other mechanism exists (gateway model discovery reads only `id`/`display_name` and discards non-`claude`/`anthropic` ids; capability env vars are inert behind `ANTHROPIC_BASE_URL`; `/v1/models` has no context-length field - Ollama's `ollama launch claude` hit the same wall and ships a hardcoded table exported as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`). Do NOT put `grok-4.5[1m]` in agent frontmatter: subagent resolution can strip the suffix (anthropics/claude-code#45169), and a 1M assumption would overshoot the real 500k ceiling with no compaction safety. Re-verify the env var after Claude Code version bumps (undocumented internal). Main-model grok sessions: use the **`clg`** launcher (`~\.local\bin\clg.cmd`: bare `grok-4.5`, window from the same env var).
+- **Context window (verified 2026-07-19, claude 2.1.21x):** grok subagents and workflow agents get grok-4.6's accurate **~500k window** via `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` in the settings.json `env` block (set in the plain and clx worlds). That undocumented env var applies only to model IDs not starting with `claude-` (checked after the `[1m]`/native-1M paths), so grok resolves to 500k with default percentage-based autocompaction against it while Claude models in the same process keep their own catalog windows. Without it, Claude Code budgets unknown model IDs at 200k, and no other mechanism exists (gateway model discovery reads only `id`/`display_name` and discards non-`claude`/`anthropic` ids; capability env vars are inert behind `ANTHROPIC_BASE_URL`; `/v1/models` has no context-length field - Ollama's `ollama launch claude` hit the same wall and ships a hardcoded table exported as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`). Do NOT put `grok-4.6[1m]` in agent frontmatter: subagent resolution can strip the suffix (anthropics/claude-code#45169), and a 1M assumption would overshoot the real 500k ceiling with no compaction safety. Re-verify the env var after Claude Code version bumps (undocumented internal). Main-model grok sessions: use the **`clg`** launcher (`~\.local\bin\clg.cmd`: bare `grok-4.6`, window from the same env var).
 
 ### Native agy subagent backend (added 2026-07-19)
 
 Two Google Antigravity **Gemini** models are wired as **native Claude Code subagents** (Agent tool, `subagent_type`), served through CLIProxyAPI's **antigravity** OAuth channel - the non-terminal alternative to `start_visible_agy_worker`. Each draws the agy account's **SEPARATE** quota, never the owner's real Claude/Anthropic subscription. Defined by `~/.claude/agents/agy-*.md` (deployed from repo `plugin/agents/`, junction-shared into `~/.claude-clx`).
 
 - Subagents (capability order): `agy-gemini-3-1-pro` > `agy-gemini-3-5-flash` (Gemini 3.1 Pro / 3.5 Flash High). The agy Claude 4.6 models (opus/sonnet) are deliberately NOT wired - their Antigravity quota bucket's limits are too low to be usable (see Quota below). Owner rule of thumb: `agy-gemini-3-5-flash` = speedy ops, `agy-gemini-3-1-pro` = harder/slower.
-- **Routing:** grok-4.5 FIRST (grok-4.5 > agy Gemini); use agy on grok-exhaustion or explicit request. Like any native subagent, only in a proxy-backed session (plain merged / clx).
+- **Routing:** grok-4.6 FIRST (grok-4.6 > agy Gemini); use agy on grok-exhaustion or explicit request. Like any native subagent, only in a proxy-backed session (plain merged / clx).
 - **Quota:** the two wired Gemini subagents draw the {gemini flash, pro} bucket (ample - ~96%+ free in practice). The other bucket {Claude opus, sonnet, gpt-oss} has very low limits - its 5-hour window exhausts fast (observed at 0% while Gemini had ~96%) - so the Claude 4.6 models AND GPT-OSS 120B are served but deliberately UNWIRED. Gemini rides free quota.
 - **Context windows:** each Gemini subagent pins `<id>[1m]` → ~1M client window (Gemini is natively ~1M). If `[1m]` is stripped in subagent resolution (anthropics/claude-code#45169) the fallback is safe (agy-*→500k global) - under-budget, never overflow.
 - **Setup** (`-antigravity-login` + `oauth-model-alias.antigravity` config + the config-needs-a-proxy-RESTART caveat, since Windows fsnotify misses the atomic-save config edit): `docs/setup/agy-antigravity.md`. New agent files need `/reload-plugins` (or restart) to appear in a running interactive session; fresh `claude -p` / workers pick them up automatically. Verified e2e 2026-07-19.
@@ -99,14 +99,14 @@ Two Google Antigravity **Gemini** models are wired as **native Claude Code subag
 
 Full live signature: `start_claude_worker(prompt, cwd, title="Claude worker", model=CLAUDE_WORKER_DEFAULT_MODEL ("claude-opus-5"), sandbox="read-only", effort="", session_context="", resume_session_id="", max_budget_usd="", steer_idle_seconds=20, use_proxy=True)`.
 
-- `model`: any model the local CLIProxyAPI gateway (`127.0.0.1:8317`, ~38 models as of 2026-07-19) serves - `grok-4.5`, `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, etc. - honored exactly as passed. The tool's own default is `claude-opus-5`, so pass `model="grok-4.5"` explicitly for default grok work.
+- `model`: any model the local CLIProxyAPI gateway (`127.0.0.1:8317`, ~38 models as of 2026-07-19) serves - `grok-4.6`, `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, etc. - honored exactly as passed. The tool's own default is `claude-opus-5`, so pass `model="grok-4.6"` explicitly for default grok work.
 - `sandbox` maps to Claude Code CLI permission modes: `read-only` -> `plan` (+ `Write`/`Edit` stripped, enforced not just requested), `workspace-write` -> `acceptEdits`, `danger-full-access` -> `bypassPermissions`.
 - `effort`: `low` / `medium` / `high` / `xhigh` / `max`.
 - `steer_claude_run(run_dir, instruction, ..., interrupt_current_turn=False)` steers or resumes a run mid-flight. Unlike the visible steers (which interrupt the in-flight turn by DEFAULT), its `interrupt_current_turn` defaults to **False** (queue/resume-oriented) - pass `True` to interrupt. There is no `requires_tool_access` param.
 - `use_proxy=False` bypasses the proxy for a direct-Anthropic spawn.
 - Full run-dir protocol preserved: `events.jsonl`, `display.log`, `status.json`, `captain_reports/`, `captain_help/`, `steer_queue/` - the same backend-agnostic `get_visible_run_status` / `list_visible_runs` / `submit_captain_report` / `list_captain_reports` / `request_captain_help` / `list_captain_help_requests` / `respond_to_captain_help_request` tools every other backend uses.
 - `check_worker_backends` reports a `claude_worker` entry (proxy reachable + model count) alongside `claude_sonnet` / `grok` / `codex` / `agy`.
-- Every claude-worker prompt (any model, including grok-4.5 via this tool) auto-carries the Worker Rigor Contract - see "grok-4.5 rigor and mandatory adversarial review" below - but NOT the grok-CLI-only Parallel Competition Mode / Mandatory Parallel Work-Checker extras (`competition_agents`, `best_of_n`, `self_check` are grok-CLI params, not `start_claude_worker` params). Escalate a hard problem to the legacy grok-CLI backend when those extras are wanted.
+- Every claude-worker prompt (any model, including grok-4.6 via this tool) auto-carries the Worker Rigor Contract - see "grok-4.6 rigor and mandatory adversarial review" below - but NOT the grok-CLI-only Parallel Competition Mode / Mandatory Parallel Work-Checker extras (`competition_agents`, `best_of_n`, `self_check` are grok-CLI params, not `start_claude_worker` params). Escalate a hard problem to the legacy grok-CLI backend when those extras are wanted.
 
 ### Memory (claude-mem) integration (added 2026-07-18)
 
@@ -130,11 +130,11 @@ There is no separate `heavy` CLI flag or model id - SuperGrok Heavy (owner is ti
 
 For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces** no-edit by passing `--disallowed-tools Write,Edit` so Grok's file-mutation tools are removed - it truly cannot edit, not merely asked not to (borrowed from faeton/claude-grok-plugin). Bash is intentionally kept so read-only inspection (Python-backed skills, read-past-sessions, safe read commands) still works - the bridge's read-only means "no edits", not "no commands". Use `read-only` for scouting / second-opinion / review workers; use `workspace-write` or full access when the worker must edit.
 
-*(These three - read-only enforcement, `best_of_n`, `self_check` - were adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.5 via the SuperGrok Heavy OAuth CLI.)*
+*(These three - read-only enforcement, `best_of_n`, `self_check` - were adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.6 via the SuperGrok Heavy OAuth CLI.)*
 
-### grok-4.5 rigor and mandatory adversarial review (owner assessment 2026-07-15)
+### grok-4.6 rigor and mandatory adversarial review (owner assessment 2026-07-15)
 
-**grok-4.5 is a fast coder but a weak engineer** - roughly gpt-5.3-codex-spark class. Its observed failure modes: it fixates on a single hypothesis, does not consider multiple scenarios, skips edge cases and error paths, and declares work "done" without ever executing it end to end. Treat every grok result as **unverified and probably buggy until you prove otherwise.** Two mechanisms enforce this:
+**grok-4.6 is a fast coder but a weak engineer** - roughly gpt-5.3-codex-spark class. Its observed failure modes: it fixates on a single hypothesis, does not consider multiple scenarios, skips edge cases and error paths, and declares work "done" without ever executing it end to end. Treat every grok result as **unverified and probably buggy until you prove otherwise.** Two mechanisms enforce this:
 
 1. **Worker Rigor Contract (automatic).** Every grok worker prompt is prepended with a mandatory contract (`_grok_rigor_contract`) that forces the worker to: enumerate 2-3 hypotheses/approaches and the edge/error/boundary cases before coding; adversarially pressure-test its own change; **actually run it end to end and paste the observed output as proof** (a confident "done" without executed evidence is defined as a failure); and report what it did NOT test plus the top 2 ways it could still be wrong. You do not need to add this to your brief - it is always injected - but your `prompt_brief` should still name the concrete acceptance test and the specific scenarios/edge cases you want covered.
 
@@ -147,9 +147,9 @@ For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces
 
 For non-trivial or correctness-sensitive grok work, prefer `best_of_n` (multiple scenarios) and `self_check=True` (its own verify pass) on top of your adversarial review - but they supplement, never replace, the captain's independent e2e verification.
 
-### Parallel Competition Mode (grok-4.5, up to 16 in-turn competitors)
+### Parallel Competition Mode (grok-4.6, up to 16 in-turn competitors)
 
-grok usage is abundant and resets often, so lean on parallelism to compensate for grok-4.5's weak single-shot reasoning. Every grok worker prompt carries a **Parallel Competition Mode** contract (`_grok_competition_contract`, controlled by the `competition_agents` param, default 16, cap 16): for a HARD or open-ended problem the root worker spawns up to N diverse subagents **inside its single turn** (native grok subagents - one terminal, no extra windows, so the owner is not spammed), each independently attempting the full task with a different strategy; the root then acts as judge, discards competitors that lack executed evidence, and **compiles the best result** (picks the strongest or synthesizes a superior combination), then verifies the compiled result end to end. This is the grok-4.5 analog of the grok-4.20 multi-agent harness.
+grok usage is abundant and resets often, so lean on parallelism to compensate for grok-4.6's weak single-shot reasoning. Every grok worker prompt carries a **Parallel Competition Mode** contract (`_grok_competition_contract`, controlled by the `competition_agents` param, default 16, cap 16): for a HARD or open-ended problem the root worker spawns up to N diverse subagents **inside its single turn** (native grok subagents - one terminal, no extra windows, so the owner is not spammed), each independently attempting the full task with a different strategy; the root then acts as judge, discards competitors that lack executed evidence, and **compiles the best result** (picks the strongest or synthesizes a superior combination), then verifies the compiled result end to end. This is the grok-4.6 analog of the grok-4.20 multi-agent harness.
 
 - It is judgment-gated: the contract tells grok to compete only when the task is hard enough to benefit and to solve simple/mechanical tasks directly, so it does not fan out 16 agents to reply with a token.
 - Set `competition_agents=1` to disable competition for a run (e.g. trivial or strictly-sequential tasks); set 2-16 to cap the competitor count.
@@ -158,7 +158,7 @@ grok usage is abundant and resets often, so lean on parallelism to compensate fo
 
 ### Mandatory parallel work-checker (grok, every run)
 
-Every grok worker prompt also carries a **Mandatory Parallel Work-Checker** contract (`_grok_work_checker_contract`, always injected) that fires right before the worker may report done: it must spawn a fleet of parallel checker subagents inside the same turn (one terminal), each adversarially auditing its OWN finished work from a different lens (correctness/logic, edge cases & error paths, did-it-actually-run/re-execute the acceptance test, requirements coverage, regressions/blast-radius, and security/concurrency/perf where relevant), then consolidate the proven findings (no cry-wolf), **fix every real issue, and re-run the checkers until they come back clean.** A grok worker may not declare done until a clean parallel work-checker pass, and its report must include what the checkers found, what it fixed, and the final clean verification output. This is the automatic, worker-side counterpart to the captain's own adversarial review - it directly attacks grok-4.5's "declares done without testing" habit. (It is judgment-scaled: a purely trivial informational reply self-verifies instead of spawning a full fleet.) The captain STILL independently e2e-verifies after - the worker's self-run checker is not a substitute for the captain's verification.
+Every grok worker prompt also carries a **Mandatory Parallel Work-Checker** contract (`_grok_work_checker_contract`, always injected) that fires right before the worker may report done: it must spawn a fleet of parallel checker subagents inside the same turn (one terminal), each adversarially auditing its OWN finished work from a different lens (correctness/logic, edge cases & error paths, did-it-actually-run/re-execute the acceptance test, requirements coverage, regressions/blast-radius, and security/concurrency/perf where relevant), then consolidate the proven findings (no cry-wolf), **fix every real issue, and re-run the checkers until they come back clean.** A grok worker may not declare done until a clean parallel work-checker pass, and its report must include what the checkers found, what it fixed, and the final clean verification output. This is the automatic, worker-side counterpart to the captain's own adversarial review - it directly attacks grok-4.6's "declares done without testing" habit. (It is judgment-scaled: a purely trivial informational reply self-verifies instead of spawning a full fleet.) The captain STILL independently e2e-verifies after - the worker's self-run checker is not a substitute for the captain's verification.
 
 ### `check_worker_backends`
 
@@ -284,7 +284,7 @@ Secondary / legacy (only when conditions in Mandatory Spawn Path match):
 **Route heavy/parallel work off the manager** - via native subagents/Workflows first:
 
 - **Any parallel agent fan-out another skill or tool would trigger** - e.g. `dispatching-parallel-agents`, `subagent-driven-development`, `feature-dev`, the `Explore` / `Plan` agents, or a direct `Agent` / Task-tool dispatch - run it as **native subagents or a Workflow**. Do not implement the fan-out inline in the manager loop, and do not re-route it through visible Codex/grok windows by default.
-- **Heavy coding work** - multi-file implementation, mechanical or large refactors, test repair, broad codebase reading, and noisy command/log iteration - route to the worker (default: native grok-4.5).
+- **Heavy coding work** - multi-file implementation, mechanical or large refactors, test repair, broad codebase reading, and noisy command/log iteration - route to the worker (default: native grok-4.6).
 
 **Honor the other skill's discipline, delegate its execution.** When a process skill applies (TDD, systematic-debugging, executing-plans), Claude still follows that skill's method and checklist - but the actual fan-out and edits are carried out by native subagents/workers, with the brief encoding the required discipline (e.g. "write the failing test first, then implement"). Claude decomposes, writes the briefs, and reviews; the workers execute.
 
@@ -310,7 +310,7 @@ Native subagents and Workflows fan out concurrently: send multiple `Agent` calls
 
 ## Worker Exhaustion Fallback (down the backend ladder)
 
-When the active worker backend runs out (grok capped, agy buckets cooling, etc.), keep delegating - just move down the ladder (grok-4.5 → agy → Claude Sonnet subagents). Do not silently start doing all the implementation as the manager model; the point is still to route heavy/parallel work off the manager. The no-nesting / no-parking / flat-fallback rules below are backend-agnostic and apply to every fallback fleet ("Codex" in the detection triggers = the capped backend).
+When the active worker backend runs out (grok capped, agy buckets cooling, etc.), keep delegating - just move down the ladder (grok-4.6 → agy → Claude Sonnet subagents). Do not silently start doing all the implementation as the manager model; the point is still to route heavy/parallel work off the manager. The no-nesting / no-parking / flat-fallback rules below are backend-agnostic and apply to every fallback fleet ("Codex" in the detection triggers = the capped backend).
 
 **Only the top-level Claude manager owns this switch.** The Codex→Sonnet decision is made once, at the captain level. A spawned worker (a Codex first mate, a Codex subagent, or a Sonnet fallback agent) that discovers Codex is capped MUST NOT decide to build its own fallback fleet - it stops and reports the cap upward, and the top-level manager reroutes. This is what prevents the nesting spiral: workers hitting the cap and each spinning up their own Sonnet sub-fleets.
 
@@ -427,19 +427,19 @@ Never "default to" `start_visible_first_mate_codex_pool`, `start_visible_haiku_c
 
 ## Grok Worker Backend (added 2026-07-14; legacy visible-window path as of 2026-07-18)
 
-**LEGACY path.** The preferred default for grok-4.5 is native `Agent` (`subagent_type: "grok"`). Use this visible grok-CLI path only when a task needs its CLI-only extras (Parallel Competition Mode, Mandatory Parallel Work-Checker) or the owner asks for a terminal. See Mandatory Spawn Path and `references/legacy-backends.md`. Codex remains disabled.
+**LEGACY path.** The preferred default for grok-4.6 is native `Agent` (`subagent_type: "grok"`). Use this visible grok-CLI path only when a task needs its CLI-only extras (Parallel Competition Mode, Mandatory Parallel Work-Checker) or the owner asks for a terminal. See Mandatory Spawn Path and `references/legacy-backends.md`. Codex remains disabled.
 
 The server exposes:
 
-- `start_visible_grok_worker`: launches `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd> --permission-mode bypassPermissions -m grok-4.5 [--reasoning-effort low|medium|high] [-r <sessionId>]` in a separate visible PowerShell window, saves prompt/event logs, and returns a run directory. (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt - confirmed live that combining them errors with `a value is required for '--single <PROMPT>'` - so the runner uses `--prompt-file` alone.) Every turn's answer is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback, see "Worker Backends & Routing").
+- `start_visible_grok_worker`: launches `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd> --permission-mode bypassPermissions -m grok-4.6 --reasoning-effort xhigh [-r <sessionId>]` in a separate visible PowerShell window, saves prompt/event logs, and returns a run directory. (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt - confirmed live that combining them errors with `a value is required for '--single <PROMPT>'` - so the runner uses `--prompt-file` alone.) Every turn's answer is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback, see "Worker Backends & Routing").
 - `start_visible_haiku_composed_grok_worker`: Claude passes a compact `prompt_brief`; the Haiku/low composer expands it (the same composer flow the Codex path uses, including its non-fatal fallback to the raw brief on composer failure), then Grok executes the composed prompt.
-- `start_visible_first_mate_grok_pool`: launches a single grok-4.5 process with its native subagent capability left enabled (no `--no-subagents`), using the same `_first_mate_prompt` brief as the Codex first-mate pool.
+- `start_visible_first_mate_grok_pool`: launches a single grok-4.6 process with its native subagent capability left enabled (no `--no-subagents`), using the same `_first_mate_prompt` brief as the Codex first-mate pool.
 - `steer_visible_grok_run`: sends a captain steering instruction to an existing visible Grok run, mirroring `steer_visible_codex_run`. An idle worker consumes the queued instruction within a second; an active worker is interrupted best-effort (Ctrl+C/taskkill) when a launcher pid is known, then resumed with `grok -r <sessionId>`. Grok has no on-disk session-readiness probe like Codex's thread-file check, so after an interrupt this always launches the resume run directly on the last recorded session id - queued-at-idle delivery is the more reliable v1 path.
 - Grok workers share the backend-agnostic read/report/help tools unchanged: `get_visible_run_status`, `list_visible_runs`, `submit_captain_report`, `list_captain_reports`, `request_captain_help`, `list_captain_help_requests`, `respond_to_captain_help_request` (see the callback-model limitation in "Worker Backends & Routing" for the live-MCP-callback caveat on `submit_captain_report` / `request_captain_help`).
 
-### Grok effort caveat
+### Grok effort (grok-4.6 xhigh)
 
-`grok-4.5`'s `--reasoning-effort` CLI flag only accepts `low` / `medium` / `high` - `xhigh` and `max` are rejected outright ("unknown effort level"). Grok's own `~/.grok/config.toml` sets `default_reasoning_effort = "xhigh"`, which applies only when the flag is **omitted**. So the owner's desired default (grok-4.5 at xhigh) is reached by passing `reasoning_effort=""` (or anything outside low/medium/high) so the bridge's `_grok_effort_flag` omits the CLI flag entirely. Pass `reasoning_effort="high"` (etc.) only when a lower tier than the config default is deliberately wanted.
+Grok 4.6 xhigh fully supersedes grok 4.5. xhigh is available in both grok Build CLI and cursor-agent CLI. For grok Build CLI, pass `-m grok-4.6 --reasoning-effort xhigh`, or omit the flag so `~/.grok/config.toml` `default_reasoning_effort = "xhigh"` applies. For Cursor workers, launch `cursor-agent -p --trust --model cursor-grok-4.6-xhigh` with Cursor Max Mode on (`~/.cursor/cli-config.json` `"maxMode": true`). Pass a lower `reasoning_effort` only when a lower tier is deliberately wanted.
 
 ### Machine setup: `~/.grok/config.toml` MCP entry
 
@@ -584,7 +584,7 @@ Do **not** start `start_visible_first_mate_codex_pool` or any Codex first-mate p
 
 Default first-mate settings (native):
 
-- default worker model: grok-4.5 via `subagent_type: "grok"`
+- default worker model: grok-4.6 via `subagent_type: "grok"`
 - permission intent: read-only for mapping; write only after Claude chooses a scoped path
 - max fan-out: 6 unless the task is clearly smaller
 - one level deep: scouts return results; they do not spawn further agents
@@ -658,7 +658,7 @@ For each: relevant files, current behavior, risks, unanswered questions. Return 
 
 Use when Claude is confident enough to permit writes.
 
-Spawn a native `Agent` (default `subagent_type: "grok"`) with write intent in the brief. For file-disjoint fan-out, one Agent per work item in a single message batch. Secondary only: `start_claude_worker(..., sandbox="workspace-write", model="grok-4.5")` when native cannot apply.
+Spawn a native `Agent` (default `subagent_type: "grok"`) with write intent in the brief. For file-disjoint fan-out, one Agent per work item in a single message batch. Secondary only: `start_claude_worker(..., sandbox="workspace-write", model="grok-4.6")` when native cannot apply.
 
 ```text
 Claude has chosen the implementation path. Implement only the listed scope.
