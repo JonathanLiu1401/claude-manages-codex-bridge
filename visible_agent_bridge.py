@@ -859,6 +859,28 @@ def _watch_command(run_dir: Path) -> str:
     )
 
 
+CAPTAIN_CHECKUP = Path(__file__).resolve().parent / "captain_checkup.py"
+
+
+def _supervise_command(run_dir: Path, cwd: str | None = None) -> str:
+    """Bash one-liner: sleep 10 minutes, print a direction briefing, wake Claude.
+
+    This is the 10-minute supervision alarm. It is not a liveness probe.
+    The captain must read the briefing, issue an on-track/off-track verdict,
+    steer if needed, then re-arm this command.
+    """
+    d = str(run_dir).replace("\\", "/")
+    script = str(CAPTAIN_CHECKUP).replace("\\", "/")
+    py = str(PYTHON).replace("\\", "/")
+    cwd_arg = ""
+    if cwd:
+        cwd_arg = f" --cwd '{str(Path(cwd).expanduser().resolve()).replace(chr(92), '/')}'"
+    return (
+        f"sleep 600; '{py}' '{script}' --run-dir '{d}'{cwd_arg} --since-minutes 10; "
+        f"echo \"CAPTAIN-SUPERVISION-DUE $(basename '{d}')\""
+    )
+
+
 def _launch(script_path: Path) -> int:
     flags = 0x00000010 if os.name == "nt" else 0
     proc = subprocess.Popen(
@@ -1741,6 +1763,7 @@ def start_visible_codex_worker(
         "steer_queue": str(run_dir / "steer_queue"),
         "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": f"A visible PowerShell window was launched. Codex runs gpt-5.6-sol at Claude-selected {effective_reasoning} reasoning (one of high/xhigh/max/ultra) with service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
@@ -2043,6 +2066,7 @@ def start_interactive_codex_tui(
         "metadata": str(run_dir / "metadata.json"),
         "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": "A real interactive Codex TUI was launched. You can steer it directly in the terminal. Codex must call submit_captain_report or write captain_reports/final.* for Claude handoff; the TUI auto-closes after that report by default.",
     }
 
@@ -2383,7 +2407,7 @@ def submit_captain_report(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude"):
+    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude", "cursor"):
         return {"ok": False, "error": f"run_dir is not a captain-reporting worker run: {path}", "metadata": metadata}
     normalized_outcome = (outcome or "").strip().lower()
     if normalized_outcome not in {"completed", "partial", "blocked", "failed"}:
@@ -2481,7 +2505,7 @@ def request_captain_help(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude"):
+    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude", "cursor"):
         return {"ok": False, "error": f"run_dir is not a captain-help-capable worker run: {path}", "metadata": metadata}
     if not question.strip():
         return {"ok": False, "error": "question is required"}
@@ -2617,7 +2641,7 @@ def respond_to_captain_help_request(
 
     Continue the same task using this decision. If this response says the user must decide, stop and report that you are waiting for the owner through Claude. Do not ask the owner directly.
     """).strip()
-    steer = steer_visible_codex_run(
+    steer = _dispatch_visible_steer(
         str(path),
         instruction,
         title=f"Captain help response {request_id}",
@@ -2630,7 +2654,7 @@ def respond_to_captain_help_request(
         "request_id": request_id,
         "status": "answered",
         "steer": steer,
-        "note": "Captain response recorded and queued as steering for the same Codex run/thread.",
+        "note": "Captain response recorded and queued as steering for the same worker run.",
     }
 
 
@@ -2698,6 +2722,7 @@ Advisor request:
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": f"A visible PowerShell window was launched for Claude advisor output. Claude is forced to {effective_model}/high by the central advisor model policy. Hidden model reasoning is not exposed.",
     }
 
@@ -3530,6 +3555,7 @@ def start_visible_grok_worker(
         "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
         "session_id_file": str(run_dir / "session_id.txt"),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": (
             f"A visible PowerShell window was launched. Grok runs {GROK_MODEL} at requested "
             f"reasoning '{reasoning_effort or 'unset'}' (effective: {effective_reasoning}; the CLI "
@@ -3788,11 +3814,11 @@ def steer_visible_grok_run(
 #      is therefore the ONLY result-callback path for agy; see SKILL.md.
 
 AGY_MODELS_BY_EFFORT = {
-    "high": "Gemini 3.6 Flash (High)",
-    "medium": "Gemini 3.6 Flash (Medium)",
-    "low": "Gemini 3.6 Flash (Low)",
+    "high": "Gemini 3.7 Flash (High)",
+    "medium": "Gemini 3.7 Flash (Medium)",
+    "low": "Gemini 3.7 Flash (Low)",
 }
-AGY_DEFAULT_MODEL = "Gemini 3.6 Flash (High)"
+AGY_DEFAULT_MODEL = "Gemini 3.7 Flash (High)"
 AGY_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
 
@@ -4293,6 +4319,7 @@ def start_visible_agy_worker(
         "steer_queue": str(run_dir / "steer_queue"),
         "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": (
             f"A visible PowerShell window was launched. Antigravity runs model '{model}' for "
             f"requested reasoning effort '{reasoning_effort or 'high'}' (effective: '{effort_key}'; "
@@ -4647,7 +4674,7 @@ def _check_agy_backend(deep: bool = False) -> dict[str, Any]:
 
 @mcp.tool()
 def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[str, Any]:
-    """Probe availability of all four worker backends before delegating to a non-default one.
+    """Probe availability of worker backends before delegating to a non-default one.
 
     Cheap by default: file existence + auth-file/JWT inspection, no network
     calls. codex's cheap check can be a false positive (see module notes
@@ -4655,7 +4682,8 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
     change the local JWT's `exp` claim; pass deep=True to additionally run
     one short live `codex exec` probe that catches that case. Manager
     doctrine: call this before delegating to a non-default backend (codex,
-    grok, or agy) and fall back to a Claude Sonnet subagent if unavailable.
+    grok, agy, or cursor-agent) and fall back to a Claude Sonnet subagent
+    if unavailable.
     """
     return {
         "claude_sonnet": _check_claude_sonnet_backend(),
@@ -4663,6 +4691,7 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
         "grok": _check_grok_backend(deep=deep),
         "codex": _check_codex_backend(deep=deep, cwd=cwd),
         "agy": _check_agy_backend(deep=deep),
+        "cursor_agent": _check_cursor_agent_backend(),
     }
 
 
@@ -4671,11 +4700,11 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
 # ============================================================================
 # Spawns worker agents NATIVELY as headless Claude Code CLI processes
 # (`claude -p --output-format stream-json`) instead of opening a visible
-# terminal/TUI per agent. Routed through a local CLIProxyAPI gateway
-# (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN), one worker can run ANY
-# provider's model — claude-opus-5, claude-sonnet-5, grok-4.6, kimi-k2.5,
-# gpt-5-codex, ... — selected per spawn via the `model` argument, which is
-# genuinely honored (unlike the Codex backend's recorded-but-ignored pattern).
+# terminal/TUI per agent. Workers run direct-Anthropic on the local `claude`
+# CLI's own credentials, so `model` must be an Anthropic model the CLI serves
+# (claude-opus-5, claude-sonnet-5, ...); it is selected per spawn via the
+# `model` argument, which is genuinely honored (unlike the Codex backend's
+# recorded-but-ignored pattern).
 # The runner (claude_worker_runner.py, deployed beside this file) is plain
 # stdlib Python, so the same backend works on Windows, macOS, and Linux with
 # the full run-directory protocol: steering, captain help/report, watchers.
@@ -4683,23 +4712,6 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
 CLAUDE_WORKER_RUNNER = Path(__file__).resolve().parent / "claude_worker_runner.py"
 CLAUDE_WORKER_DEFAULT_MODEL = os.environ.get("BRIDGE_CLAUDE_WORKER_MODEL", "").strip() or "claude-opus-5"
 CLAUDE_WORKER_EFFORTS = ("low", "medium", "high", "xhigh", "max")
-CLIPROXY_BASE_URL_ENV = "CLIPROXY_BASE_URL"
-CLIPROXY_API_KEY_ENV = "CLIPROXY_API_KEY"
-CLIPROXY_CONFIG_PATH = HOME / ".agent-bridge" / "proxy.json"
-
-
-def _proxy_config() -> dict[str, str]:
-    """CLIProxyAPI connection settings: env overrides > ~/.agent-bridge/proxy.json.
-
-    proxy.json shape: {"base_url": "http://127.0.0.1:8317", "api_key": "sk-...",
-    "claude_config_dir": ""}. The api key is never written into run metadata;
-    it reaches the runner only via the CLIPROXY_API_KEY environment variable.
-    """
-    config = _read_json(CLIPROXY_CONFIG_PATH, {}) or {}
-    base_url = os.environ.get(CLIPROXY_BASE_URL_ENV, "").strip() or str(config.get("base_url") or "http://127.0.0.1:8317")
-    api_key = os.environ.get(CLIPROXY_API_KEY_ENV, "").strip() or str(config.get("api_key") or "")
-    claude_config_dir = str(config.get("claude_config_dir") or "")
-    return {"base_url": base_url, "api_key": api_key, "claude_config_dir": claude_config_dir}
 
 
 def _claude_worker_effort(requested: str) -> str:
@@ -4775,6 +4787,21 @@ def _launch_headless_python(script_path: Path, run_dir: Path, env: dict[str, str
     return int(proc.pid)
 
 
+def _launch_visible_python(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+    """Launch a stdlib runner in a new console window (Windows) so the owner can watch it."""
+    kwargs: dict[str, Any] = {
+        "cwd": str(run_dir),
+        "env": env,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x00000010  # CREATE_NEW_CONSOLE
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen([str(PYTHON), str(script_path), str(run_dir)], **kwargs)
+    _LAUNCHED_PIDS.append(int(proc.pid))
+    return int(proc.pid)
+
+
 @mcp.tool()
 def start_claude_worker(
     prompt: str,
@@ -4787,33 +4814,21 @@ def start_claude_worker(
     resume_session_id: str = "",
     max_budget_usd: str = "",
     steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
-    use_proxy: bool = True,
 ) -> dict[str, Any]:
     """Spawn a native headless Claude Code CLI worker on ANY provider's model.
 
     No terminal/TUI window is opened: the worker runs as a detached headless
     `claude -p` process whose stream-json output is captured into the standard
     run directory (events.jsonl, display.log, status.json, captain_reports/).
-    With use_proxy=True (default) the worker is routed through the local
-    CLIProxyAPI gateway, so `model` may be any model the proxy serves —
-    e.g. claude-opus-5, claude-sonnet-5, claude-fable-5, grok-4.6 — and it is
-    honored exactly as passed. Steering, captain-help, and captain-report
-    tooling work identically to the other backends. Cross-platform.
+    The worker always runs direct-Anthropic on the local `claude` CLI's own
+    credentials, so `model` must be an Anthropic model that CLI serves
+    (e.g. claude-opus-5, claude-sonnet-5, claude-fable-5), and it is honored
+    exactly as passed. Steering, captain-help, and captain-report tooling work
+    identically to the other backends. Cross-platform.
     """
     effective_model = (model or "").strip() or CLAUDE_WORKER_DEFAULT_MODEL
     effective_effort = _claude_worker_effort(effort)
     permission_mode, read_only_enforced = _claude_worker_permission_mode(sandbox)
-    proxy = _proxy_config()
-    proxy_enabled = bool(use_proxy)
-    if proxy_enabled and not proxy["api_key"]:
-        return {
-            "ok": False,
-            "error": (
-                "CLIProxyAPI key not configured. Set CLIPROXY_API_KEY or write "
-                f"{CLIPROXY_CONFIG_PATH} with {{\"base_url\": ..., \"api_key\": ...}}, "
-                "or pass use_proxy=False to run direct-Anthropic."
-            ),
-        }
     prompt_with_permissions = "\n\n".join([
         _codex_permission_contract(sandbox, "native-claude-code-permission-mode:" + permission_mode),
         prompt,
@@ -4839,11 +4854,6 @@ def start_claude_worker(
         "captain_report_auto_write": True,
         "claude_cli": str(CLAUDE),
         "mode": "headless_native",
-        "proxy": {
-            "enabled": proxy_enabled,
-            "base_url": proxy["base_url"] if proxy_enabled else "",
-            "claude_config_dir": proxy["claude_config_dir"] if proxy_enabled else "",
-        },
     })
     effective_prompt = "\n\n".join([
         _claude_worker_rigor_note(),
@@ -4853,8 +4863,6 @@ def start_claude_worker(
     ])
     (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
     launch_env = dict(os.environ)
-    if proxy_enabled:
-        launch_env[CLIPROXY_API_KEY_ENV] = proxy["api_key"]
     pid = _launch_headless_python(CLAUDE_WORKER_RUNNER, run_dir, env=launch_env)
     (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
     return {
@@ -4870,10 +4878,10 @@ def start_claude_worker(
         "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
         "session_id_file": str(run_dir / "session_id.txt"),
         "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
         "note": (
             f"A headless native Claude Code worker was spawned (no terminal window). "
-            f"Model: {effective_model} via "
-            f"{proxy['base_url'] if proxy_enabled else 'direct Anthropic'} | "
+            f"Model: {effective_model} via direct Anthropic | "
             f"permission mode: {permission_mode}"
             f"{' | read-only enforced (Write/Edit stripped)' if read_only_enforced else ''} | "
             f"effort: {effective_effort or 'CLI default'}. The runner auto-writes "
@@ -4962,7 +4970,6 @@ def steer_claude_run(
         session_context=session_context,
         resume_session_id=session_id,
         steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
-        use_proxy=bool((metadata.get("proxy") or {}).get("enabled", True)),
     )
     result["mode"] = "launched_resume"
     result["resume_run"] = resume
@@ -4976,34 +4983,526 @@ def _check_claude_worker_backend() -> dict[str, Any]:
         return {"available": False, "reason": f"claude CLI not found at {CLAUDE}", "detail": ""}
     if not CLAUDE_WORKER_RUNNER.exists():
         return {"available": False, "reason": f"claude_worker_runner.py missing at {CLAUDE_WORKER_RUNNER}", "detail": ""}
-    proxy = _proxy_config()
-    if not proxy["api_key"]:
-        return {
-            "available": True,
-            "reason": "claude CLI + runner present; proxy key not configured, so only use_proxy=False (direct Anthropic) runs work",
-            "detail": f"set {CLIPROXY_API_KEY_ENV} or write {CLIPROXY_CONFIG_PATH}",
-        }
-    try:
-        import urllib.request
+    return {
+        "available": True,
+        "reason": "claude CLI + runner present; workers run direct-Anthropic on the claude CLI's own credentials",
+        "detail": f"{CLAUDE}",
+    }
 
-        request = urllib.request.Request(
-            proxy["base_url"].rstrip("/") + "/v1/models",
-            headers={"Authorization": f"Bearer {proxy['api_key']}"},
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        count = len(data.get("data") or [])
-        return {
-            "available": True,
-            "reason": f"claude CLI + runner present; CLIProxyAPI reachable with {count} model(s)",
-            "detail": f"{proxy['base_url']} | example models: " + ", ".join(m.get("id", "?") for m in (data.get("data") or [])[:5]),
-        }
+
+# ============================================================================
+# Cursor Agent worker backend (visible window, added 2026-08-26)
+# ============================================================================
+# cursor-agent CLI in a visible console, default model cursor-grok-4.6-xhigh-fast
+# (owner routing: grok 4.6 xhigh Max Mode fast). Same run-dir protocol as the
+# other backends. Print mode has no --prompt-file and rejects stdin, so the
+# runner passes a short bootstrap that Reads prompt.md when the brief is long.
+# Resume is `--resume <session_id>` (session_id is stable across turns).
+
+CURSOR_WORKER_RUNNER = Path(__file__).resolve().parent / "cursor_worker_runner.py"
+CURSOR_DEFAULT_MODEL = "cursor-grok-4.6-xhigh-fast"
+CURSOR_MODELS_BY_EFFORT = {
+    "low": "cursor-grok-4.6-low-fast",
+    "medium": "cursor-grok-4.6-medium-fast",
+    "high": "cursor-grok-4.6-high-fast",
+    "xhigh": "cursor-grok-4.6-xhigh-fast",
+}
+CURSOR_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
+
+
+def _resolve_cursor_agent_argv() -> list[str]:
+    """Prefer versioned node.exe + index.js so long argv never hits cmd.exe's 8191 limit."""
+    override = os.environ.get("BRIDGE_CURSOR_AGENT_CLI", "").strip()
+    if override:
+        return [override]
+    localapp = Path(os.environ.get("LOCALAPPDATA", "") or "")
+    versions = localapp / "cursor-agent" / "versions"
+    if versions.is_dir():
+        dirs = sorted((d for d in versions.iterdir() if d.is_dir()), key=lambda d: d.name, reverse=True)
+        for directory in dirs:
+            node = directory / "node.exe"
+            index = directory / "index.js"
+            if node.exists() and index.exists():
+                return [str(node), str(index)]
+    found = shutil.which("cursor-agent") or shutil.which("agent")
+    if found:
+        return [found]
+    fallback = localapp / "cursor-agent" / "cursor-agent.cmd"
+    if fallback.exists():
+        return [str(fallback)]
+    return []
+
+
+def _cursor_model_for_effort(requested: str, model: str = "") -> str:
+    explicit = (model or "").strip()
+    if explicit:
+        return explicit
+    candidate = (requested or "").strip().lower()
+    if candidate in CURSOR_MODELS_BY_EFFORT:
+        return CURSOR_MODELS_BY_EFFORT[candidate]
+    if candidate in CURSOR_MODELS_BY_EFFORT.values() or candidate.startswith("cursor-"):
+        return (requested or "").strip()
+    return CURSOR_DEFAULT_MODEL
+
+
+def _ensure_cursor_max_mode() -> dict[str, Any]:
+    """Keep Cursor Max Mode on so the default worker is Extra High Fast · MAX."""
+    path = HOME / ".cursor" / "cli-config.json"
+    try:
+        data = _read_json(path, {})
+        if not isinstance(data, dict):
+            data = {}
+        changed = False
+        if data.get("maxMode") is not True:
+            data["maxMode"] = True
+            changed = True
+        model = data.get("model")
+        if isinstance(model, dict) and model.get("maxMode") is not True:
+            model["maxMode"] = True
+            changed = True
+        if changed:
+            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return {"ok": True, "path": str(path), "changed": changed, "maxMode": True}
     except Exception as exc:
+        return {"ok": False, "path": str(path), "error": str(exc)}
+
+
+def _ensure_cursor_mcp_config() -> dict[str, Any]:
+    """Merge agent-visibility into ~/.cursor/mcp.json so a worker can call Layer 2 tools."""
+    path = HOME / ".cursor" / "mcp.json"
+    deployed = HOME / ".agent-bridge" / "visible_agent_bridge.py"
+    bridge_py = deployed if deployed.is_file() else Path(__file__).resolve()
+    server = {
+        "command": str(PYTHON),
+        "args": [str(bridge_py)],
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = _read_json(path, {})
+        if not isinstance(data, dict):
+            data = {}
+        servers = data.get("mcpServers")
+        if not isinstance(servers, dict):
+            servers = {}
+            data["mcpServers"] = servers
+        existing = servers.get("agent-visibility")
+        if existing == server:
+            return {"ok": True, "path": str(path), "changed": False}
+        servers["agent-visibility"] = server
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return {"ok": True, "path": str(path), "changed": True}
+    except Exception as exc:
+        return {"ok": False, "path": str(path), "error": str(exc)}
+
+
+def _cursor_captain_report_note(run_dir: Path) -> str:
+    return textwrap.dedent(f"""
+    # Captain Report (Cursor agent)
+
+    Run directory: {run_dir}
+
+    This run's launcher automatically writes a captain report to
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON}` and
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_MD}` from your final
+    answer text once this turn ends, so Claude can read your result with
+    `get_visible_run_status` or `list_captain_reports` even if you never call a
+    tool. If the `agent-visibility` MCP server is reachable in this session,
+    also call `submit_captain_report` with a structured outcome/summary before
+    stopping, and use `request_captain_help` if you are blocked.
+    """).strip()
+
+
+def _check_cursor_agent_backend() -> dict[str, Any]:
+    argv = _resolve_cursor_agent_argv()
+    if not argv:
+        return {
+            "available": False,
+            "reason": "cursor-agent CLI not found on PATH or under %LOCALAPPDATA%\\cursor-agent",
+            "detail": "",
+        }
+    if not CURSOR_WORKER_RUNNER.exists():
+        return {
+            "available": False,
+            "reason": f"cursor_worker_runner.py missing at {CURSOR_WORKER_RUNNER}",
+            "detail": " ".join(argv),
+        }
+    cfg = _read_json(HOME / ".cursor" / "cli-config.json", {})
+    email = ""
+    if isinstance(cfg, dict):
+        auth = cfg.get("authInfo")
+        if isinstance(auth, dict):
+            email = str(auth.get("email") or "").strip()
+    max_mode = cfg.get("maxMode") is True if isinstance(cfg, dict) else False
+    max_note = "maxMode=true" if max_mode else "maxMode not true (harness will set it on start)"
+    if email:
         return {
             "available": True,
-            "reason": "claude CLI + runner present but CLIProxyAPI probe failed; use_proxy=False (direct Anthropic) still works",
-            "detail": f"{proxy['base_url']}: {exc}",
+            "reason": f"cursor-agent CLI present; cli-config.json authInfo.email={email}; {max_note}",
+            "detail": " ".join(argv),
         }
+    return {
+        "available": True,
+        "reason": f"cursor-agent CLI present (no authInfo.email in ~/.cursor/cli-config.json; login is still required); {max_note}",
+        "detail": " ".join(argv),
+    }
+
+
+@mcp.tool()
+def start_visible_cursor_worker(
+    prompt: str,
+    cwd: str,
+    title: str = "Cursor worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "xhigh",
+    model: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = CURSOR_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible cursor-agent worker in a new console window and save logs.
+
+    Default model is always cursor-grok-4.6-xhigh-fast (Cursor Grok 4.6 Extra
+    High Fast · MAX) unless the owner names another model. reasoning_effort
+    selects among cursor-grok-4.6-{{low,medium,high,xhigh}}-fast unless `model`
+    is an explicit Cursor model id. sandbox=read-only maps to `--mode plan`;
+    writes use `--force`. `--trust` and `--approve-mcps` always. Max Mode is
+    turned on in ~/.cursor/cli-config.json on start.
+    """
+    argv = _resolve_cursor_agent_argv()
+    if not argv:
+        return {"ok": False, "error": "cursor-agent CLI not found"}
+    if not CURSOR_WORKER_RUNNER.exists():
+        return {"ok": False, "error": f"cursor_worker_runner.py missing at {CURSOR_WORKER_RUNNER}"}
+    effective_model = _cursor_model_for_effort(reasoning_effort, model)
+    auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
+    effective_sandbox = CODEX_FULL_TOOL_SANDBOX
+    prompt_with_permissions = "\n\n".join([
+        _codex_permission_contract(sandbox, effective_sandbox),
+        prompt,
+    ])
+    if compose_with_haiku:
+        effective_prompt = prompt.strip()
+    else:
+        effective_prompt = _with_session_context_bootstrap(
+            prompt_with_permissions, cwd, "Cursor worker", session_context
+        )
+    mcp_status = _ensure_cursor_mcp_config()
+    max_mode_status = _ensure_cursor_max_mode()
+    run_dir = _make_run(cwd, "cursor-resume" if resume_session_id else "cursor", title, effective_prompt, {
+        "agent": "cursor",
+        "cwd": str(Path(cwd).resolve()),
+        "sandbox": effective_sandbox,
+        "requested_sandbox": sandbox,
+        "model": effective_model,
+        "requested_model": model or None,
+        "requested_reasoning_effort": reasoning_effort,
+        "effective_reasoning_effort": (reasoning_effort or "xhigh").strip().lower() or "xhigh",
+        "resume_session_id": resume_session_id or None,
+        "session_context_supplied": bool(session_context.strip()),
+        "requires_tool_access": requires_tool_access,
+        "auto_full_tool_access": auto_full_tool_access,
+        "sandbox_bypass_enabled": True,
+        "tool_access_default": "full-process-access",
+        "compose_with_haiku": compose_with_haiku,
+        "prompt_composer_model": composer_model if compose_with_haiku else None,
+        "prompt_composer_effort": composer_effort if compose_with_haiku else None,
+        "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
+        "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
+        "captain_help_enabled": True,
+        "captain_report_auto_write": True,
+        "cursor_agent_argv": argv,
+        "claude_cli": str(CLAUDE),
+        "mcp_config": mcp_status,
+        "max_mode": max_mode_status,
+        "mode": "visible_cursor_agent",
+    })
+    if not compose_with_haiku:
+        effective_prompt = "\n\n".join([
+            _claude_worker_rigor_note(),
+            _cursor_captain_report_note(run_dir),
+            _captain_help_contract(run_dir),
+            effective_prompt,
+        ])
+        (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
+    if compose_with_haiku:
+        composer_prompt = _haiku_codex_prompt_composer_prompt(
+            prompt,
+            cwd,
+            title,
+            sandbox,
+            session_context,
+            resume_session_id,
+            requires_tool_access or auto_full_tool_access,
+            "xhigh",
+        )
+        (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
+        prelude = _with_session_context_bootstrap(
+            "\n\n".join([
+                _claude_worker_rigor_note(),
+                _cursor_captain_report_note(run_dir),
+                _captain_help_contract(run_dir),
+                _codex_permission_contract(sandbox, effective_sandbox),
+            ]),
+            cwd,
+            "Cursor worker",
+            session_context,
+        )
+        (run_dir / "cursor_prelude.md").write_text(prelude, encoding="utf-8")
+    launch_env = dict(os.environ)
+    launch_env.setdefault("PYTHONIOENCODING", "utf-8")
+    launch_env.setdefault("PYTHONUNBUFFERED", "1")
+    pid = _launch_visible_python(CURSOR_WORKER_RUNNER, run_dir, env=launch_env)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
+    return {
+        "run_id": run_dir.name,
+        "pid": pid,
+        "run_dir": str(run_dir),
+        "prompt": str(run_dir / "prompt.md"),
+        "display_log": str(run_dir / "display.log"),
+        "raw_events": str(run_dir / "events.jsonl"),
+        "status": str(run_dir / "status.json"),
+        "steer_queue": str(run_dir / "steer_queue"),
+        "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
+        "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "session_id_file": str(run_dir / "session_id.txt"),
+        "watch_command": _watch_command(run_dir),
+        "supervise_command": _supervise_command(run_dir),
+        "note": (
+            f"A visible console window was launched. cursor-agent runs {effective_model} "
+            f"(requested effort '{reasoning_effort or 'xhigh'}'). Requested sandbox "
+            f"{sandbox} maps to {'--mode plan' if (sandbox or '').strip().lower() == 'read-only' else '--force'}; "
+            f"process sandbox is disabled for full tool access. Haiku prompt composer "
+            f"enabled={compose_with_haiku}. The runner auto-writes captain_reports/final.json+"
+            "final.md from the answer text after every turn."
+        ),
+    }
+
+
+@mcp.tool()
+def start_visible_haiku_composed_cursor_worker(
+    prompt_brief: str,
+    cwd: str,
+    title: str = "Cursor worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "xhigh",
+    model: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = CURSOR_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible cursor-agent worker from a compact Claude brief expanded by Claude Haiku."""
+    return start_visible_cursor_worker(
+        prompt=prompt_brief,
+        cwd=cwd,
+        title=title,
+        sandbox=sandbox,
+        reasoning_effort=reasoning_effort,
+        model=model,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=requires_tool_access,
+        compose_with_haiku=True,
+        composer_model=CLAUDE_PROMPT_COMPOSER_MODEL,
+        composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
+        composer_max_budget_usd=composer_max_budget_usd,
+        steer_idle_seconds=steer_idle_seconds,
+    )
+
+
+@mcp.tool()
+def start_visible_first_mate_cursor_pool(
+    goal: str,
+    cwd: str,
+    scout_areas: list[str] | None = None,
+    implementation_items: list[str] | None = None,
+    sandbox: str = "read-only",
+    max_workers: int = 6,
+    session_context: str = "",
+    requires_tool_access: bool = False,
+    reasoning_effort: str = "xhigh",
+    model: str = "",
+) -> dict[str, Any]:
+    """Launch a visible cursor-agent root with native Task subagents left enabled to act as first mate."""
+    prompt, auto_full_tool_access = _first_mate_prompt(
+        goal=goal,
+        scout_areas=scout_areas,
+        implementation_items=implementation_items,
+        sandbox=sandbox,
+        max_workers=max_workers,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access,
+    )
+    return start_visible_cursor_worker(
+        prompt=prompt,
+        cwd=cwd,
+        title="Cursor first mate pool",
+        sandbox=sandbox,
+        reasoning_effort=reasoning_effort,
+        model=model,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access or auto_full_tool_access,
+    )
+
+
+@mcp.tool()
+def steer_visible_cursor_run(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    interrupt_current_turn: bool = True,
+    requires_tool_access: bool = False,
+) -> dict[str, Any]:
+    """Send a Claude steering instruction to a visible cursor-agent run, resuming the same session if needed."""
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status_name = _status_name(status)
+    if metadata.get("agent") not in (None, "cursor"):
+        return {"ok": False, "error": f"run_dir is not a Cursor visible run: {path}", "metadata": metadata}
+
+    requested_sandbox = sandbox.strip()
+    permission_contract = (
+        _codex_permission_contract(requested_sandbox, CODEX_FULL_TOOL_SANDBOX)
+        if requested_sandbox
+        else ""
+    )
+    steer_path = _write_steer_file(path, instruction, session_context, title, permission_contract)
+    session_id = _visible_run_session_id(path, metadata) or ""
+    active = status_name == "created" or status_name == "waiting_for_steer" or status_name.startswith("running")
+    result: dict[str, Any] = {
+        "ok": True,
+        "mode": "queued",
+        "run_dir": str(path),
+        "status": status,
+        "session_id": session_id or None,
+        "steer_file": str(steer_path),
+        "note": "Steering was queued. The visible Cursor window will consume it after the current turn, or during its steering idle window.",
+    }
+
+    idle = status_name in ("created", "waiting_for_steer")
+    if active and (not interrupt_current_turn or idle):
+        if status_name == "waiting_for_steer":
+            result["note"] = (
+                "Steering was queued for immediate pickup: the worker is idle in its "
+                "steering window and polls the queue every second."
+            )
+        return result
+
+    resume_session_id = session_id
+    resume_mode = "launched_resume"
+    resume_note = "The previous visible Cursor run was not available for in-window steering, so a visible Cursor resume run was launched on the same session id."
+
+    if interrupt_current_turn and active:
+        if not session_id:
+            result["mode"] = "queued_no_interrupt_no_thread"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because no Cursor session id is available yet."
+            return result
+        pid_path = path / "launcher_pid.txt"
+        if not pid_path.exists():
+            result["mode"] = "queued_no_interrupt_no_pid"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because the launcher pid is unavailable."
+            return result
+        try:
+            pid = pid_path.read_text(encoding="utf-8-sig").strip()
+            interrupted, interrupt_warning = _interrupt_visible_run(pid)
+            if not interrupted:
+                result["mode"] = "queued_interrupt_failed"
+                if interrupt_warning:
+                    result["interrupt_warning"] = interrupt_warning
+                result["note"] = "Steering was queued, but the active visible Cursor run could not be interrupted cleanly."
+                return result
+            result["interrupted_pid"] = pid
+            if interrupt_warning:
+                result["interrupt_warning"] = interrupt_warning
+        except Exception as exc:
+            result["mode"] = "queued_interrupt_failed"
+            result["interrupt_warning"] = str(exc)
+            result["note"] = "Steering was queued, but the active visible Cursor run could not be interrupted cleanly."
+            return result
+
+    if not launch_if_closed and "interrupted_pid" not in result:
+        result["mode"] = "queued_no_active_runner"
+        result["note"] = "Steering was queued, but the visible Cursor run is not active and launch_if_closed is false."
+        return result
+
+    if not session_id:
+        result["mode"] = "queued_no_resume_thread"
+        result["note"] = "Steering was queued, but no Cursor session id is available to launch a resume run."
+        return result
+
+    cwd = _infer_cwd_from_run_dir(path, metadata)
+    steer_prompt = steer_path.read_text(encoding="utf-8")
+    resume_context = "\n\n".join(
+        part for part in [
+            f"Previous visible run: {path}",
+            f"Previous status: {status_name}",
+            f"Previous Cursor session id: {session_id}",
+            session_context.strip(),
+        ] if part
+    )
+    followup = start_visible_cursor_worker(
+        prompt=steer_prompt,
+        cwd=cwd,
+        title=title,
+        sandbox=requested_sandbox or metadata.get("requested_sandbox") or "read-only",
+        reasoning_effort=str(metadata.get("requested_reasoning_effort") or "xhigh"),
+        model=str(metadata.get("model") or ""),
+        session_context=resume_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=bool(requires_tool_access or metadata.get("requires_tool_access") or metadata.get("auto_full_tool_access")),
+        compose_with_haiku=False,
+        steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CURSOR_STEER_IDLE_SECONDS),
+    )
+    try:
+        done_dir = path / "steer_done"
+        done_dir.mkdir(parents=True, exist_ok=True)
+        steer_path.replace(done_dir / steer_path.name)
+    except Exception:
+        pass
+    result["mode"] = resume_mode
+    result["followup_run"] = followup
+    result["note"] = resume_note
+    return result
+
+
+def _dispatch_visible_steer(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+) -> dict[str, Any]:
+    """Route captain-help steering to the matching backend instead of always Codex."""
+    path = Path(run_dir).expanduser().resolve()
+    agent = _read_json(path / "metadata.json", {}).get("agent")
+    kwargs = {
+        "title": title,
+        "session_context": session_context,
+        "sandbox": sandbox,
+        "launch_if_closed": launch_if_closed,
+    }
+    if agent == "grok":
+        return steer_visible_grok_run(run_dir, instruction, **kwargs)
+    if agent == "agy":
+        return steer_visible_agy_run(run_dir, instruction, **kwargs)
+    if agent == "claude":
+        return steer_claude_run(run_dir, instruction, **kwargs)
+    if agent == "cursor":
+        return steer_visible_cursor_run(run_dir, instruction, **kwargs)
+    return steer_visible_codex_run(run_dir, instruction, **kwargs)
 
 
 if __name__ == "__main__":

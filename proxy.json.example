@@ -1,5 +1,0 @@
-{
-  "base_url": "http://127.0.0.1:8317",
-  "api_key": "sk-cliproxy-REPLACE_WITH_YOUR_LOOPBACK_KEY",
-  "claude_config_dir": "C:\\Users\\YOUR_USERNAME\\.claude-clx"
-}

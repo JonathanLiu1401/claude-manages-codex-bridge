@@ -3,7 +3,7 @@
 
 Launched by visible_agent_bridge.py as:  python claude_worker_runner.py <run_dir>
 
-Everything else (model, effort, permission mode, proxy routing, steer window,
+Everything else (model, effort, permission mode, steer window,
 resume session id) is read from <run_dir>/metadata.json, so this file needs no
 per-run templating and behaves identically on Windows, macOS, and Linux.
 
@@ -159,16 +159,6 @@ class Run:
 
     def _turn_env(self) -> dict[str, str]:
         env = dict(os.environ)
-        proxy = self.metadata.get("proxy") or {}
-        if proxy.get("enabled"):
-            env["ANTHROPIC_BASE_URL"] = proxy.get("base_url", "http://127.0.0.1:8317")
-            key = proxy.get("api_key") or env.get("CLIPROXY_API_KEY", "")
-            if key:
-                env["ANTHROPIC_AUTH_TOKEN"] = key
-            env.pop("ANTHROPIC_API_KEY", None)
-            config_dir = proxy.get("claude_config_dir") or ""
-            if config_dir:
-                env["CLAUDE_CONFIG_DIR"] = str(Path(config_dir).expanduser())
         env.setdefault("PYTHONIOENCODING", "utf-8")
         return env
 
@@ -263,11 +253,10 @@ class Run:
         self.set_status("running")
         self.log(f"Run directory: {self.run_dir}")
         self.log(f"CWD: {self.cwd}")
-        proxy = md.get("proxy") or {}
         self.log(
             f"Model: {md.get('model')} | Effort: {md.get('effort') or 'default'} | "
             f"Permission mode: {md.get('permission_mode')} | "
-            f"Proxy: {proxy.get('base_url') if proxy.get('enabled') else 'off (direct Anthropic)'}"
+            f"Routing: direct Anthropic"
         )
         prompt_text = self.prompt_path.read_text(encoding="utf-8-sig")
 

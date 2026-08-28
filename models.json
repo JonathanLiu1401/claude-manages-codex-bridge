@@ -6,7 +6,7 @@
     "fable":     { "id": "claude-fable-5",      "window": "[1m]" },
     "grok":      { "id": "grok-4.6",            "window": "" },
     "agy-pro":   { "id": "agy-gemini-3-1-pro",  "window": "[1m]" },
-    "agy-flash": { "id": "agy-gemini-3-6-flash","window": "[1m]" }
+    "agy-flash": { "id": "agy-gemini-3-7-flash","window": "[1m]" }
   },
   "bindings": { "worker_default": "opus", "advisor": "opus", "custom_slot": "grok", "advisor_alias_form": true }
 }

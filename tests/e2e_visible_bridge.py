@@ -975,7 +975,7 @@ def case_grok_captain_report_gate() -> dict[str, Any]:
 
 def case_check_worker_backends() -> dict[str, Any]:
     cheap = bridge.check_worker_backends(cwd=str(ROOT), deep=False)
-    for key in ("claude_sonnet", "grok", "codex", "agy"):
+    for key in ("claude_sonnet", "grok", "codex", "agy", "cursor_agent"):
         assert key in cheap, cheap
         for field in ("available", "reason", "detail"):
             assert field in cheap[key], (key, cheap)
@@ -1174,18 +1174,18 @@ def _wait_agy_completed(run_dir: Path, markers: list[str], timeout_s: int = 180)
 
 
 def case_agy_effort_unit() -> dict[str, Any]:
-    assert bridge._agy_model_for_effort("high") == "Gemini 3.6 Flash (High)", bridge._agy_model_for_effort("high")
-    assert bridge._agy_model_for_effort("HIGH") == "Gemini 3.6 Flash (High)", bridge._agy_model_for_effort("HIGH")
-    assert bridge._agy_model_for_effort("medium") == "Gemini 3.6 Flash (Medium)", bridge._agy_model_for_effort("medium")
-    assert bridge._agy_model_for_effort("low") == "Gemini 3.6 Flash (Low)", bridge._agy_model_for_effort("low")
+    assert bridge._agy_model_for_effort("high") == "Gemini 3.7 Flash (High)", bridge._agy_model_for_effort("high")
+    assert bridge._agy_model_for_effort("HIGH") == "Gemini 3.7 Flash (High)", bridge._agy_model_for_effort("HIGH")
+    assert bridge._agy_model_for_effort("medium") == "Gemini 3.7 Flash (Medium)", bridge._agy_model_for_effort("medium")
+    assert bridge._agy_model_for_effort("low") == "Gemini 3.7 Flash (Low)", bridge._agy_model_for_effort("low")
     assert bridge._agy_model_for_effort("") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("")
     assert bridge._agy_model_for_effort("xhigh") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("xhigh")
     assert bridge._agy_model_for_effort("bogus") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("bogus")
-    assert bridge.AGY_DEFAULT_MODEL == "Gemini 3.6 Flash (High)", bridge.AGY_DEFAULT_MODEL
+    assert bridge.AGY_DEFAULT_MODEL == "Gemini 3.7 Flash (High)", bridge.AGY_DEFAULT_MODEL
     assert bridge.AGY_MODELS_BY_EFFORT == {
-        "high": "Gemini 3.6 Flash (High)",
-        "medium": "Gemini 3.6 Flash (Medium)",
-        "low": "Gemini 3.6 Flash (Low)",
+        "high": "Gemini 3.7 Flash (High)",
+        "medium": "Gemini 3.7 Flash (Medium)",
+        "low": "Gemini 3.7 Flash (Low)",
     }, bridge.AGY_MODELS_BY_EFFORT
     return {"ok": True}
 
@@ -1229,7 +1229,7 @@ def case_agy_dry_run_args() -> dict[str, Any]:
     assert metadata["resume_continue"] is False, metadata
 
     assert "agy" in script, script
-    assert "Gemini 3.6 Flash (High)" in script, script
+    assert "Gemini 3.7 Flash (High)" in script, script
     assert "--dangerously-skip-permissions" in script, script
     assert "--add-dir" in script, script
 
@@ -1454,6 +1454,372 @@ def run_agy_suite(skip_expensive: bool) -> dict[str, Any]:
     return results
 
 
+# --- Cursor agent worker backend cases (added 2026-08-26) ---
+
+CURSOR_SESSION_CONTEXT = (
+    "Self-contained Cursor-agent E2E verification for the multi-agentic harness. "
+    "Do not use read-past-sessions. Do not edit files. Return the requested marker exactly."
+)
+
+
+def case_cursor_effort_unit() -> dict[str, Any]:
+    assert bridge._cursor_model_for_effort("") == bridge.CURSOR_DEFAULT_MODEL
+    assert bridge._cursor_model_for_effort("xhigh") == "cursor-grok-4.6-xhigh-fast"
+    assert bridge._cursor_model_for_effort("high") == "cursor-grok-4.6-high-fast"
+    assert bridge._cursor_model_for_effort("low") == "cursor-grok-4.6-low-fast"
+    assert bridge._cursor_model_for_effort("medium") == "cursor-grok-4.6-medium-fast"
+    assert bridge._cursor_model_for_effort("xhigh", "composer-2.5-fast") == "composer-2.5-fast"
+    argv = bridge._resolve_cursor_agent_argv()
+    assert argv, argv
+    return {"ok": True, "argv": argv, "default_model": bridge.CURSOR_DEFAULT_MODEL}
+
+
+def case_cursor_dry_run_args() -> dict[str, Any]:
+    original_launch = bridge._launch_visible_python
+    launched: list[Path] = []
+
+    def fake_launch(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+        launched.append(script_path)
+        return 414141
+
+    try:
+        bridge._launch_visible_python = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_cursor_worker(
+            prompt="Self-contained E2E dry-run. Do not edit files. Reply exactly DRY_RUN_UNUSED.",
+            cwd=str(ROOT),
+            title="E2E Cursor dry-run",
+            sandbox="read-only",
+            session_context=CURSOR_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch_visible_python = original_launch  # type: ignore[assignment]
+
+    assert result.get("pid") == 414141, result
+    assert launched, result
+    assert launched[0] == bridge.CURSOR_WORKER_RUNNER, launched
+    assert "watch_command" in result and result["watch_command"], result
+    assert "supervise_command" in result and "captain_checkup.py" in result["supervise_command"], result
+    assert "sleep 600" in result["supervise_command"], result
+
+    run_dir = _run_dir(result)
+    metadata = _read_json(run_dir / "metadata.json", {})
+    assert metadata["agent"] == "cursor", metadata
+    assert metadata["model"] == bridge.CURSOR_DEFAULT_MODEL, metadata
+    assert metadata["requested_sandbox"] == "read-only", metadata
+    assert metadata["captain_help_enabled"] is True, metadata
+    assert metadata["captain_report_auto_write"] is True, metadata
+    assert metadata.get("cursor_agent_argv"), metadata
+    assert metadata.get("max_mode", {}).get("ok") is True, metadata
+    assert metadata.get("max_mode", {}).get("maxMode") is True, metadata
+
+    prompt = (run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    assert "submit_captain_report" in prompt, prompt
+    assert "request_captain_help" in prompt, prompt
+    assert str(run_dir) in prompt, prompt
+    assert "Worker Rigor Contract" in prompt, prompt
+
+    runner = bridge.CURSOR_WORKER_RUNNER.read_text(encoding="utf-8")
+    assert "--output-format" in runner and "stream-json" in runner, runner
+    assert "--mode" in runner and "plan" in runner, runner
+    assert "--resume" in runner, runner
+    return {"run_dir": str(run_dir), "script": str(launched[0])}
+
+
+def case_cursor_haiku_composed_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch_visible_python
+    launched: list[Path] = []
+
+    def fake_launch(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+        launched.append(script_path)
+        return 414142
+
+    try:
+        bridge._launch_visible_python = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_haiku_composed_cursor_worker(
+            prompt_brief="Self-contained E2E dry-run brief. Ask the worker to reply exactly DRY_RUN_UNUSED.",
+            cwd=str(ROOT),
+            title="E2E Cursor Haiku composed dry-run",
+            sandbox="read-only",
+            session_context=CURSOR_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch_visible_python = original_launch  # type: ignore[assignment]
+
+    assert launched, result
+    run_dir = _run_dir(result)
+    metadata = _read_json(run_dir / "metadata.json", {})
+    assert metadata["compose_with_haiku"] is True, metadata
+    assert (run_dir / "composer_prompt.md").exists(), run_dir
+    assert (run_dir / "cursor_prelude.md").exists(), run_dir
+    return {"run_dir": str(run_dir)}
+
+
+def case_captain_checkup_script() -> dict[str, Any]:
+    """The 10-minute captain script must brief recent work, not just liveness."""
+    script = ROOT / "captain_checkup.py"
+    assert script.is_file(), script
+    run_dir = bridge._make_run(
+        str(ROOT),
+        "cursor",
+        "E2E captain checkup",
+        "Implement the wrong file on purpose so the captain has something to judge.",
+        {"agent": "cursor", "cwd": str(ROOT), "model": bridge.CURSOR_DEFAULT_MODEL, "requested_sandbox": "workspace-write"},
+    )
+    (run_dir / "display.log").write_text(
+        "Starting Cursor turn: initial\nEdit src/wrong_file.py\npytest not run\n",
+        encoding="utf-8",
+    )
+    (run_dir / "events.jsonl").write_text(
+        json.dumps({"type": "tool_use", "name": "Edit"}) + "\n"
+        + json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}})
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "status.json").write_text(
+        json.dumps({"status": "running:initial"}),
+        encoding="utf-8",
+    )
+    (run_dir / "launcher_pid.txt").write_text("1", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--run-dir", str(run_dir), "--cwd", str(ROOT), "--since-minutes", "10"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+    for phrase in (
+        "ALIVE != ON-TRACK",
+        "A liveness or status-only poll never counts",
+        "wrong_file.py",
+        "Edit",
+        "Captain verdict",
+        "off-track",
+        "CAPTAIN-SUPERVISION-DUE",
+        run_dir.name,
+    ):
+        assert phrase in out, (phrase, out[-2000:])
+    skill_text = (ROOT / "plugin" / "skills" / "claude-manages-codex" / "SKILL.md").read_text(encoding="utf-8")
+    for phrase in (
+        "captain_checkup.py",
+        "supervise_command",
+        "Alive is not on-track",
+        "A liveness or status-only poll never counts",
+    ):
+        assert phrase in skill_text, phrase
+    return {"run_dir": str(run_dir), "ok": True}
+
+
+def case_cursor_captain_report_gate() -> dict[str, Any]:
+    run_dir = bridge._make_run(
+        str(ROOT),
+        "cursor",
+        "E2E captain report gate probe",
+        "Self-contained gate probe. Do not launch cursor-agent.",
+        {
+            "agent": "cursor",
+            "cwd": str(ROOT),
+            "requested_sandbox": "read-only",
+        },
+    )
+    report = bridge.submit_captain_report(
+        str(run_dir),
+        outcome="completed",
+        summary="Cursor run should be accepted by the widened allowlist.",
+    )
+    assert report["ok"] is True, report
+    help_request = bridge.request_captain_help(
+        str(run_dir),
+        question="Cursor run should be accepted by the same widened allowlist.",
+    )
+    assert help_request["ok"] is True, help_request
+    status = bridge.get_visible_run_status(str(run_dir), tail_lines=5)
+    assert status["metadata"]["agent"] == "cursor", status
+    return {
+        "run_dir": str(run_dir),
+        "submit_captain_report_accepted": True,
+        "request_captain_help_accepted": True,
+    }
+
+
+CURSOR_LIVE_MARKER = "CURSOR_E2E_OK"
+CURSOR_STEER_MARKER = "CURSOR_STEERED_OK"
+
+
+def _wait_cursor_completed(run_dir: Path, markers: list[str], timeout_s: int = 300) -> str:
+    """Poll a visible cursor-agent run until it completes with the expected markers."""
+    display = run_dir / "display.log"
+    deadline = time.time() + timeout_s
+    last_status = "missing"
+    last_text = ""
+    while time.time() < deadline:
+        last_status = _status(run_dir)
+        if display.exists():
+            try:
+                last_text = display.read_text(encoding="utf-8-sig", errors="replace")
+            except PermissionError:
+                pass
+        marker_ok = all(marker in last_text for marker in markers)
+        if last_status.startswith("failed"):
+            raise AssertionError(
+                f"cursor run failed: {run_dir}\nstatus={last_status}\n{_tail(display)}"
+            )
+        if last_status in {"completed", "completed_budget_capped"} and marker_ok:
+            _assert_launcher_exited(run_dir)
+            return last_text
+        time.sleep(2)
+    missing = [marker for marker in markers if marker not in last_text]
+    raise AssertionError(
+        f"timed out waiting for cursor run {run_dir}\nstatus={last_status}\nmissing={missing}\n{_tail(display)}"
+    )
+
+
+def case_cursor_deployed_bridge_in_sync() -> dict[str, Any]:
+    """The Claude Code MCP process loads ~/.agent-bridge, not the git checkout."""
+    deployed_bridge = Path.home() / ".agent-bridge" / "visible_agent_bridge.py"
+    deployed_runner = Path.home() / ".agent-bridge" / "cursor_worker_runner.py"
+    assert deployed_bridge.is_file(), deployed_bridge
+    assert deployed_runner.is_file(), deployed_runner
+    assert deployed_runner.read_bytes() == bridge.CURSOR_WORKER_RUNNER.read_bytes(), (
+        "cursor_worker_runner.py in ~/.agent-bridge is stale vs the git checkout"
+    )
+    return {
+        "deployed_bridge": str(deployed_bridge),
+        "deployed_runner": str(deployed_runner),
+        "runner_in_sync": True,
+    }
+
+
+def case_cursor_live_roundtrip() -> dict[str, Any]:
+    """LIVE. Opens a console, runs cursor-agent print mode, asserts Layer 1 report."""
+    result = bridge.start_visible_cursor_worker(
+        prompt=(
+            "Self-contained E2E. Do not edit files. Do not spawn subagents. "
+            f"Reply with exactly {CURSOR_LIVE_MARKER} and nothing else."
+        ),
+        cwd=str(ROOT),
+        title="E2E Cursor live roundtrip",
+        sandbox="read-only",
+        session_context=CURSOR_SESSION_CONTEXT,
+        steer_idle_seconds=8,
+    )
+    assert result.get("pid"), result
+    run_dir = _run_dir(result)
+    metadata = _read_json(run_dir / "metadata.json", {})
+    assert metadata.get("model") == bridge.CURSOR_DEFAULT_MODEL, metadata
+    text = _wait_cursor_completed(run_dir, [CURSOR_LIVE_MARKER], timeout_s=600)
+
+    events_path = run_dir / "events.jsonl"
+    assert events_path.exists(), run_dir
+    events_text = events_path.read_text(encoding="utf-8-sig", errors="replace")
+    assert '"type":"result"' in events_text or '"type": "result"' in events_text, events_text[-2000:]
+
+    session_id_path = run_dir / "session_id.txt"
+    assert session_id_path.exists(), run_dir
+    session_id = session_id_path.read_text(encoding="utf-8-sig").strip()
+    assert session_id, "session_id.txt was empty"
+
+    final_md = (run_dir / "captain_reports" / "final.md").read_text(encoding="utf-8-sig")
+    assert CURSOR_LIVE_MARKER in final_md, final_md
+    final_json = _read_json(run_dir / "captain_reports" / "final.json", {})
+    assert final_json.get("outcome") == "completed", final_json
+    assert final_json.get("agent") == "cursor", final_json
+    summary_text = str(final_json.get("summary", "")) + str(final_json.get("text", ""))
+    assert CURSOR_LIVE_MARKER in summary_text, final_json
+    return {
+        "run_dir": str(run_dir),
+        "session_id": session_id,
+        "pid": result.get("pid"),
+        "model": bridge.CURSOR_DEFAULT_MODEL,
+    }
+
+
+def case_cursor_live_steer_resume(previous: dict[str, Any]) -> dict[str, Any]:
+    """LIVE. Steer the completed cursor run; --resume must keep the same session id."""
+    run_dir = Path(previous["run_dir"])
+    events_before = (run_dir / "events.jsonl").read_text(encoding="utf-8-sig", errors="replace")
+    result_count_before = events_before.count('"type":"result"') + events_before.count('"type": "result"')
+
+    steer = bridge.steer_visible_cursor_run(
+        str(run_dir),
+        f"Self-contained steering E2E. Reply with exactly {CURSOR_STEER_MARKER} and nothing else. Do not edit files.",
+        title="E2E Cursor steer follow-up",
+        sandbox="read-only",
+        session_context=CURSOR_SESSION_CONTEXT,
+        launch_if_closed=True,
+        interrupt_current_turn=False,
+    )
+    assert steer["ok"], steer
+
+    if steer["mode"] == "launched_resume":
+        followup_dir = _run_dir(steer["followup_run"])
+        _wait_cursor_completed(followup_dir, [CURSOR_STEER_MARKER], timeout_s=600)
+        followup_session = (followup_dir / "session_id.txt").read_text(encoding="utf-8-sig").strip()
+        assert followup_session == previous["session_id"], (followup_session, previous["session_id"])
+        return {"run_dir": str(followup_dir), "mode": steer["mode"], "session_id": followup_session}
+
+    _wait_cursor_completed(run_dir, [CURSOR_LIVE_MARKER, CURSOR_STEER_MARKER], timeout_s=600)
+    events_after = (run_dir / "events.jsonl").read_text(encoding="utf-8-sig", errors="replace")
+    result_count_after = events_after.count('"type":"result"') + events_after.count('"type": "result"')
+    assert result_count_after > result_count_before, (result_count_after, result_count_before)
+    return {"run_dir": str(run_dir), "mode": steer["mode"], "session_id": previous["session_id"]}
+
+
+def case_cursor_write_sandbox_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch_visible_python
+
+    def fake_launch(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+        return 414143
+
+    try:
+        bridge._launch_visible_python = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_cursor_worker(
+            prompt="Self-contained write-sandbox dry-run.",
+            cwd=str(ROOT),
+            title="E2E Cursor write dry-run",
+            sandbox="workspace-write",
+            session_context=CURSOR_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch_visible_python = original_launch  # type: ignore[assignment]
+    metadata = _read_json(_run_dir(result) / "metadata.json", {})
+    assert metadata["requested_sandbox"] == "workspace-write", metadata
+    return {"run_dir": result["run_dir"]}
+
+
+def run_cursor_suite(skip_expensive: bool) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    print("[cursor 1/8] effort->model unit", flush=True)
+    results["effort_unit"] = case_cursor_effort_unit()
+    print("[cursor 2/8] dry-run arg assertions", flush=True)
+    results["dry_run"] = case_cursor_dry_run_args()
+    print(json.dumps(results["dry_run"], indent=2), flush=True)
+    print("[cursor 3/8] Haiku-composed dry-run", flush=True)
+    results["haiku_dry_run"] = case_cursor_haiku_composed_dry_run()
+    print("[cursor 4/8] captain report / help gate + 10-min checkup script", flush=True)
+    results["captain_report_gate"] = case_cursor_captain_report_gate()
+    results["captain_checkup"] = case_captain_checkup_script()
+    print("[cursor 5/8] write-sandbox dry-run + availability", flush=True)
+    results["write_sandbox"] = case_cursor_write_sandbox_dry_run()
+    results["availability"] = case_check_worker_backends()
+    assert results["availability"]["cheap"]["cursor_agent"]["available"] is True, results["availability"]
+    print("[cursor 6/8] deployed ~/.agent-bridge in sync", flush=True)
+    results["deployed_in_sync"] = case_cursor_deployed_bridge_in_sync()
+    if skip_expensive:
+        print("[cursor 7-8/8] SKIPPED (--skip-expensive): live roundtrip + steer", flush=True)
+        results["live_roundtrip"] = "skipped"
+        results["live_steer"] = "skipped"
+    else:
+        print("[cursor 7/8] LIVE roundtrip (cursor-grok-4.6-xhigh-fast · MAX, visible window)", flush=True)
+        results["live_roundtrip"] = case_cursor_live_roundtrip()
+        print(json.dumps(results["live_roundtrip"], indent=2), flush=True)
+        print("[cursor 8/8] LIVE steer/resume", flush=True)
+        results["live_steer"] = case_cursor_live_steer_resume(results["live_roundtrip"])
+        print(json.dumps(results["live_steer"], indent=2), flush=True)
+    print(json.dumps({"ok": True, "results": results}, indent=2), flush=True)
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-expensive", action="store_true", help="Skip Haiku, first-mate, and Claude advisor cases.")
@@ -1467,6 +1833,11 @@ def main() -> None:
         action="store_true",
         help="Run only the Antigravity (agy) backend + availability-check cases (added 2026-07-14), skipping all Codex and Grok cases. Lets the agy suite run to completion even when Codex/Grok are not logged in.",
     )
+    parser.add_argument(
+        "--cursor-only",
+        action="store_true",
+        help="Run only the cursor-agent backend + availability-check cases (added 2026-08-26).",
+    )
     args = parser.parse_args()
 
     if args.grok_only:
@@ -1475,6 +1846,10 @@ def main() -> None:
 
     if args.agy_only:
         run_agy_suite(skip_expensive=args.skip_expensive)
+        return
+
+    if args.cursor_only:
+        run_cursor_suite(skip_expensive=args.skip_expensive)
         return
 
     results: dict[str, Any] = {}

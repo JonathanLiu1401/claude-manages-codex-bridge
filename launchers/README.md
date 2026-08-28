@@ -1,24 +1,20 @@
 # Launchers
 
-Windows `.cmd` launchers for the three Claude Code "worlds" plus the grok
-main-model profile. Deploy to a PATH dir (e.g. `%USERPROFILE%\.local\bin`).
-
-| Launcher | World | Endpoint | Models | Remote Control |
-|---|---|---|---|---|
-| `claude` (plain) | `~/.claude` | CLIProxyAPI (via settings env) | all proxy models | no (gateway) |
-| `clg.cmd` | `~/.claude` | CLIProxyAPI | starts on grok-4.6 (500k window) | no |
-| `clx.cmd` | `~/.claude-clx` | CLIProxyAPI (API-key mode) | all proxy models | no |
-| `cld.cmd` | `~/.claude-direct` | api.anthropic.com (forced) | Claude models only | **yes** |
+There are no launcher wrappers any more. The three Claude Code "worlds"
+(`clx`, `cld`, `clg`) and the local multi-provider gateway they pointed at were
+removed, so plain `claude` is the only entry point: it talks straight to
+`api.anthropic.com` with the normal OAuth login, out of `~/.claude`.
 
 Notes:
-- `cld.cmd` force-pins the base URL via `--settings force-direct.json` because
-  project-scope settings (`~/.claude/settings.json` when cwd is under the home
-  dir) would otherwise leak the proxy env into the "direct" world and silently
-  kill Remote Control.
-- `clx.cmd` reads the per-machine loopback API key from
-  `%USERPROFILE%\CLIProxyAPI\proxy-key.txt` at launch — never hardcode it.
-- `cld.cmd` also self-heals the shared-session-store junction
-  (`projects` -> `~/.claude/projects`) once no cld session holds the folder.
-- Grok context sizing comes from `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` in
-  the settings env (see main README) — `clg.cmd` just starts on bare
-  `grok-4.6` and inherits it.
+- Nothing here needs deploying to a PATH dir any more.
+- Do NOT set `ANTHROPIC_BASE_URL` or `ANTHROPIC_AUTH_TOKEN`. A non-Anthropic
+  base URL is what used to disable Remote Control, `/autocompact`, and
+  auto-dream; plain `claude` keeps all three working.
+- There are no per-world config dirs (`~/.claude-clx`, `~/.claude-direct`,
+  `~/.claude-ollama`) and no `CLAUDE_CONFIG_DIR` juggling. One config dir:
+  `~/.claude`.
+- To start on a specific model, use the `/model` picker or `claude --model <id>`
+  instead of a wrapper script.
+- `force-direct.json` and `proxy.json.example` used to live here. They were the
+  "direct world" base-URL pin and the gateway config template respectively, and
+  both have been deleted along with everything else in this list.

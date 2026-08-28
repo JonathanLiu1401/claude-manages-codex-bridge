@@ -1,0 +1,20 @@
+#!/bin/sh
+# Git Bash / MSYS `command -v cursor-agent` ignores cursor-agent.cmd (PATHEXT).
+# Install this file as ~/.local/bin/cursor-agent with no extension.
+set -e
+ROOT="${LOCALAPPDATA:-$HOME/AppData/Local}/cursor-agent"
+VERSIONS="$ROOT/versions"
+if [ -d "$VERSIONS" ]; then
+  latest=$(ls -1 "$VERSIONS" | sort -r | head -n 1)
+  node="$VERSIONS/$latest/node.exe"
+  index="$VERSIONS/$latest/index.js"
+  if [ -f "$node" ] && [ -f "$index" ]; then
+    exec "$node" "$index" "$@"
+  fi
+fi
+cmd="$ROOT/cursor-agent.cmd"
+if [ -f "$cmd" ]; then
+  exec cmd.exe /c "$cmd" "$@"
+fi
+echo "cursor-agent not found under $ROOT" >&2
+exit 127

@@ -2,7 +2,3 @@ __pycache__/
 *.pyc
 *.bak
 .claude-codex/
-
-# local CLIProxyAPI credentials — never commit the real loopback key.
-# Copy proxy.json.example -> proxy.json and fill in your key.
-proxy.json
