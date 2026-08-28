@@ -17,12 +17,16 @@ cursor-agent specifics (probed live 2026-08-26):
     tells the worker to Read prompt.md / the steer file.
   - Read-only maps to `--mode plan`. Writes use `--force`. `--trust` and
     `--approve-mcps` always, `--sandbox disabled` for full process access.
+  - On Windows the Shell tool only accepts Git Bash when MSYSTEM is set
+    (cursor-agent's Mt() returns early otherwise) and `bash` on PATH must
+    not be the WSL/WindowsApps stub. The runner injects Git Bash env.
 """
 from __future__ import annotations
 
 import datetime as _dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -32,6 +36,54 @@ CAPTAIN_REPORTS_DIR = "captain_reports"
 FINAL_JSON = "final.json"
 FINAL_MD = "final.md"
 INLINE_PROMPT_MAX_CHARS = 16000
+GIT_BASH_ROOTS = (
+    os.environ.get("GIT_INSTALL_ROOT", ""),
+    r"C:\Program Files\Git",
+    r"C:\Program Files (x86)\Git",
+)
+
+
+def _git_install_root() -> Path | None:
+    for raw in GIT_BASH_ROOTS:
+        if not raw:
+            continue
+        root = Path(raw)
+        if (root / "bin" / "bash.exe").is_file():
+            return root
+    git_exe = shutil.which("git")
+    if not git_exe:
+        return None
+    git_path = Path(git_exe)
+    # Git\cmd\git.exe or Git\bin\git.exe
+    for candidate in (git_path.parent.parent, git_path.parent):
+        if (candidate / "bin" / "bash.exe").is_file():
+            return candidate
+    return None
+
+
+def apply_git_bash_env(env: dict[str, str]) -> dict[str, str]:
+    """Make cursor-agent's Shell tool use Git Bash instead of WSL bash.
+
+    cursor-agent (2026.08.25) only probes Git\\bin\\bash.exe when MSYSTEM is
+    set. A node.exe launch from Python has no MSYSTEM, so it falls through
+    to `bash` on PATH, which on this machine is System32/WindowsApps WSL
+    stubs that cannot spawn. Prepend Git bin and set MSYSTEM/EXEPATH/SHELL.
+    """
+    if os.name != "nt":
+        return env
+    git_root = _git_install_root()
+    if git_root is None:
+        return env
+    bash = git_root / "bin" / "bash.exe"
+    prepend = [str(git_root / "bin"), str(git_root / "usr" / "bin"), str(git_root / "cmd")]
+    current = env.get("PATH") or env.get("Path") or ""
+    parts = [p for p in current.split(os.pathsep) if p and p not in prepend]
+    env["PATH"] = os.pathsep.join(prepend + parts)
+    env["Path"] = env["PATH"]
+    env["MSYSTEM"] = env.get("MSYSTEM") or "MINGW64"
+    env["EXEPATH"] = str(git_root)
+    env["SHELL"] = str(bash)
+    return env
 
 
 def _now_iso() -> str:
@@ -193,7 +245,7 @@ class Run:
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUNBUFFERED", "1")
-        return env
+        return apply_git_bash_env(env)
 
     def _ingest_event(self, obj: dict, chunks: list[str], thought_noted: list[bool]) -> str:
         """Return result text if this is a terminal result event, else ''."""

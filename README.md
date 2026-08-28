@@ -137,6 +137,9 @@ New tools, mirroring grok: `start_visible_cursor_worker`,
 - Default model is `cursor-grok-4.6-xhigh-fast`. Effort maps to `cursor-grok-4.6-{low|medium|high|xhigh}-fast`.
   Cursor Max Mode (`~/.cursor/cli-config.json` `"maxMode": true`) is the 1M-context unlock, not a CLI flag.
   Do **not** pass `--force` together with `--mode plan` (the CLI then reports `permissionMode: default`).
+- On Windows the runner sets `MSYSTEM`/`EXEPATH`/`SHELL` and prepends `Git\bin` so the Shell tool
+  uses Git Bash. cursor-agent's `Mt()` returns early without `MSYSTEM`, and `bash` on PATH is the
+  WSL/WindowsApps stub. Already-open worker windows keep the old env; spawn a new one after deploy.
 - Session ids are UUIDs on every stream-json event. `--resume <session_id>` keeps the same id.
 - Layer 1 auto-writes `captain_reports/final.json` + `final.md`. Layer 2 uses `~/.cursor/mcp.json`
   `mcpServers.agent-visibility` (created additively on first start). Allowlist includes `"cursor"`.

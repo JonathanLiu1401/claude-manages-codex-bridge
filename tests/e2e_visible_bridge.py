@@ -1471,7 +1471,29 @@ def case_cursor_effort_unit() -> dict[str, Any]:
     assert bridge._cursor_model_for_effort("xhigh", "composer-2.5-fast") == "composer-2.5-fast"
     argv = bridge._resolve_cursor_agent_argv()
     assert argv, argv
-    return {"ok": True, "argv": argv, "default_model": bridge.CURSOR_DEFAULT_MODEL}
+    import cursor_worker_runner as cwr
+    git_env = cwr.apply_git_bash_env(dict(os.environ))
+    bash = Path(git_env.get("SHELL", ""))
+    assert bash.name.lower() == "bash.exe", git_env
+    assert bash.is_file(), bash
+    assert git_env.get("MSYSTEM") == "MINGW64", git_env
+    assert str(bash.parent) in git_env.get("PATH", ""), git_env
+    spawn = subprocess.run(
+        [str(bash), "-lc", "echo SHELL_OK && uname"],
+        capture_output=True,
+        text=True,
+        env=git_env,
+        timeout=20,
+    )
+    assert spawn.returncode == 0, (spawn.stdout, spawn.stderr)
+    assert "SHELL_OK" in spawn.stdout, spawn.stdout
+    return {
+        "ok": True,
+        "argv": argv,
+        "default_model": bridge.CURSOR_DEFAULT_MODEL,
+        "git_bash": str(bash),
+        "uname": spawn.stdout.strip(),
+    }
 
 
 def case_cursor_dry_run_args() -> dict[str, Any]:

@@ -5256,6 +5256,11 @@ def start_visible_cursor_worker(
     launch_env = dict(os.environ)
     launch_env.setdefault("PYTHONIOENCODING", "utf-8")
     launch_env.setdefault("PYTHONUNBUFFERED", "1")
+    try:
+        from cursor_worker_runner import apply_git_bash_env as _apply_git_bash_env
+        launch_env = _apply_git_bash_env(launch_env)
+    except Exception:
+        pass
     pid = _launch_visible_python(CURSOR_WORKER_RUNNER, run_dir, env=launch_env)
     (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
     return {
