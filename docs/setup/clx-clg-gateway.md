@@ -29,24 +29,25 @@ Launchers live in `~/bin/{clx,clg}` (Git Bash) and `~/bin/{clx,clg}.ps1`, with
 They were deleted in `2df4291` when the gateway was decommissioned; the gateway
 is back, so they work again.
 
-**Routing is now profile-dependent**, which is the one behavioural change to the
-`claude-manages-codex` skill:
+**Routing is profile-dependent, and clx/clg are NOT cross-compatible.**
 
-- **Plain Claude session** - unchanged. Native proxy-backed subagent types do
-  not resolve (the gateway env vars are not set), so everyday delegation uses
-  built-in `subagent_type`s and the visible terminal-window workers
-  (`start_visible_*`) remain the harness proper on explicit request.
-- **clx / clg session** - spawn the native `grok` / `agy-gemini-3-8-flash`
-  subagents through the ordinary `Agent` tool. They run inside Claude Code's own
-  agentic runtime, so tools, permissions, diffs and steering work with no
-  detached console. Prefer them over a terminal-window worker there.
+| Captain | Same-family workers | Other-family workers |
+| --- | --- | --- |
+| Plain Claude (`~/.claude`) | Agent built-in `subagent_type` | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*`. |
+| clx (grok 500k) | Agent `grok` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. |
+| clg (Gemini 1M) | Agent `agy-gemini-3-8-flash` | grok: `start_visible_grok_worker`. Never Agent `grok`. |
 
-This satisfies Subagent Locality rather than bending it: a clx session **is**
-Claude Code, so an `Agent`-tool spawn is same-harness delegation. The forbidden
-thing was ever Bashing another CLI, not using a provider model in this runtime.
+Native Agent types run inside Claude Code's own runtime (tools, permissions,
+diffs, steering, no detached console). They are same-family only. Verified
+2026-09-02 from a clx session: native `grok` returned `E2E_NATIVE_GROK=OK` /
+`grok-4.6(high)`; native `agy-gemini-3-8-flash` returned
+`E2E_NATIVE_AGY=WRONG_MODEL` and ran as grok; visible agy CLI returned
+`E2E_VISIBLE_AGY=OK` / `Gemini 3.7 Flash (High)`.
 
-Verified 2026-09-02: a subagent spawned in a `clx` session confirmed it launched
-as a Claude Code TUI subagent and reported its model as `grok-4.6 (high)`.
+This satisfies Subagent Locality: a clx/clg session **is** Claude Code, so an
+`Agent`-tool spawn of *that profile's* type is same-harness delegation. The
+forbidden things are Bashing another CLI, and borrowing the other profile's
+Agent type.
 
 ## Non-obvious facts, all measured
 

@@ -24,11 +24,12 @@ config dirs (`~/.claude-clx`, `~/.claude-clg`). Plain `claude` and `~/.claude`
 are untouched. Two commands because the context window is process-wide: clx is
 500k for grok, clg is 1M for gemini.
 
-In those sessions, delegate with the native `grok` / `agy-gemini-3-8-flash`
-subagents (`plugin/agents/`) via the ordinary `Agent` tool. In a plain Claude
-session nothing changes - the visible terminal-window workers remain the harness
-proper. Cursor was attempted and rejected (no working tool bridge); use
-`cursor-agent`'s own TUI for Cursor work.
+clx and clg are not cross-compatible. clx uses native Agent `grok` and the
+Antigravity CLI for agy work. clg uses native Agent `agy-gemini-3-8-flash` and
+the Grok Build CLI for grok work. A plain Claude captain never uses those
+native types: grok/agy work from `~/.claude` is `start_visible_grok_worker` /
+`start_visible_agy_worker`. Cursor was attempted and rejected (no working tool
+bridge); use `cursor-agent`'s own TUI for Cursor work.
 
 **Full documentation, including every measured gotcha:
 [`docs/setup/clx-clg-gateway.md`](docs/setup/clx-clg-gateway.md).**

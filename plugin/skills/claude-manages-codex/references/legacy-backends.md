@@ -1,16 +1,20 @@
 # Legacy / on-request worker backends (migrated from ~/CLAUDE.md 2026-07-19; native-first 2026-07-20)
 
-**Default spawn path is NOT here.** Default is native Claude Agent-tool subagents
-with a built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`).
-See SKILL.md "Mandatory Spawn Path" and ~/CLAUDE.md. This file is only the
-per-backend mechanics for explicit-request / legacy visible-window paths.
+**Default spawn path is NOT here.** See SKILL.md "Which session am I in?".
+Plain Claude: built-in Agent types; grok/agy via these visible CLI terminals.
+clx: native Agent `grok`; agy via `start_visible_agy_worker`.
+clg: native Agent `agy-gemini-3-8-flash`; grok via `start_visible_grok_worker`.
+clx and clg are not cross-compatible. This file is the per-backend mechanics
+for the visible-window paths.
 
 - **cursor-agent CLI** (explicit harness request, preferred visible path):
   `cursor-agent -p --output-format stream-json --trust --approve-mcps --sandbox disabled
   --workspace <cwd> --model cursor-grok-4.6-xhigh-fast`; tools
   `start_visible_cursor_worker` / `start_visible_haiku_composed_cursor_worker` /
   `start_visible_first_mate_cursor_pool` / `steer_visible_cursor_run`. Resume is
-  `--resume <session_id>`. Read-only maps to `--mode plan`.
+  `--resume <session_id>`. Read-only maps to `--mode plan`. That mode emits a
+  plan unless the brief forces a finished-answer schema (numbered findings
+  with file:line and a concrete observed value). See SKILL.md Review Pass.
 - **grok-4.6 xhigh via grok CLI** (legacy path, kept for grok-CLI-only extras):
   `grok --prompt-file ... --output-format streaming-json -m grok-4.6 --reasoning-effort xhigh`; tools
   `start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker` /
