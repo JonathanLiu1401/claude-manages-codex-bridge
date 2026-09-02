@@ -16,6 +16,23 @@
 
 For a Claude captain this means: `Agent`-tool Claude subagents are the default, and the visible terminal-window workers (`start_visible_*`) documented throughout this README are the **explicit-request** path, used when the user asks for the multi-agentic harness by name or for visible windows. Delegation stays ONE level deep, and every worker result is treated as unverified until the captain re-runs the acceptance test.
 
+## Provider models in the Claude Code TUI: clx / clg (2026-09-02)
+
+`clx` and `clg` run Grok and Google Antigravity models inside the Claude Code TUI
+through a stock local CLIProxyAPI gateway on `127.0.0.1:8317`, with isolated
+config dirs (`~/.claude-clx`, `~/.claude-clg`). Plain `claude` and `~/.claude`
+are untouched. Two commands because the context window is process-wide: clx is
+500k for grok, clg is 1M for gemini.
+
+In those sessions, delegate with the native `grok` / `agy-gemini-3-8-flash`
+subagents (`plugin/agents/`) via the ordinary `Agent` tool. In a plain Claude
+session nothing changes - the visible terminal-window workers remain the harness
+proper. Cursor was attempted and rejected (no working tool bridge); use
+`cursor-agent`'s own TUI for Cursor work.
+
+**Full documentation, including every measured gotcha:
+[`docs/setup/clx-clg-gateway.md`](docs/setup/clx-clg-gateway.md).**
+
 ## What this is
 
 A small Python MCP server (`visible_agent_bridge.py`) that powers a **multi-agent worker harness**: Claude
@@ -31,9 +48,13 @@ built-in `subagent_type`. When the harness is explicitly requested, the preferre
 **cursor-agent** at `cursor-grok-4.6-xhigh-fast` (`start_visible_cursor_worker`,
 `start_visible_haiku_composed_cursor_worker`, `start_visible_first_mate_cursor_pool`,
 `steer_visible_cursor_run`). The **grok CLI** remains the path for Parallel Competition Mode and the
-Mandatory Parallel Work-Checker. The native Agent-tool
-subagent types `grok`, `agy-gemini-3-1-pro`, and `agy-gemini-3-7-flash` **no longer exist**: they were
-served by a local multi-provider gateway that has been removed, and their agent definitions are deleted.
+Mandatory Parallel Work-Checker. Native Agent-tool subagent types are **profile-dependent** as of 2026-09-02: in a
+plain Claude session they do not resolve, but in a session started by the `clx` (grok, 500k) or `clg`
+(gemini/agy, 1M) launcher the native `grok` / `agy-gemini-3-8-flash` subagents work and are the
+preferred delegation path there - they run inside Claude Code's own agentic runtime with no detached
+console. The local CLIProxyAPI gateway those depend on was decommissioned on 2026-08-15 and
+deliberately reinstated as a stock install; see `docs/setup/clx-clg-gateway.md`. The older types
+`agy-gemini-3-1-pro` / `agy-gemini-3-7-flash` are still gone - `agy-gemini-3-8-flash` replaces them.
 **Google Antigravity (agy)** is reached through the legacy visible-terminal `start_visible_agy_worker`,
 which drives the `agy` CLI under its own login and **separate quota** (not the real Claude/Anthropic
 subscription); **Codex is disabled until further notice** (its ChatGPT login is revoked, the code is left

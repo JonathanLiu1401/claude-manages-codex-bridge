@@ -1,6 +1,6 @@
 ---
 name: claude-manages-codex
-description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); workers do implementation. SUBAGENT LOCALITY (owner rule 2026-08-15, overrides all model routing): a Claude session spawns Claude subagents through the normal Agent tool with a built-in subagent_type (general-purpose, Explore, Plan, claude, ...) and must NOT shell out to cursor-agent, grok, or Codex to delegate. The visible terminal-window workers (start_visible_* MCP tools) are used when the user explicitly asks for the multi-agentic harness by name, for visible windows, or for grok agents / grok workers (including to edit/implement — then start_visible_grok_worker with a write sandbox, do not substitute Claude subagents or leave read-only). start_claude_worker is a secondary headless run-dir path (direct-Anthropic only). The native subagent types "grok", "agy-gemini-3-1-pro", and "agy-gemini-3-7-flash" NO LONGER EXIST - do not try to spawn them. Codex is disabled. Trigger for "delegate to grok", "use the multi-agent harness", "parallelize with subagents", "first mate", or any coding task where Claude decides and a worker codes.
+description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); workers do implementation. SUBAGENT LOCALITY (owner rule 2026-08-15, overrides all model routing): a Claude session spawns Claude subagents through the normal Agent tool with a built-in subagent_type (general-purpose, Explore, Plan, claude, ...) and must NOT shell out to cursor-agent, grok, or Codex to delegate. The visible terminal-window workers (start_visible_* MCP tools) are used when the user explicitly asks for the multi-agentic harness by name, for visible windows, or for grok agents / grok workers (including to edit/implement — then start_visible_grok_worker with a write sandbox, do not substitute Claude subagents or leave read-only). start_claude_worker is a secondary headless run-dir path (direct-Anthropic only). PROFILE-DEPENDENT NATIVE WORKERS (2026-09-02): in a normal direct-Anthropic Claude session the native proxy-backed subagent types do NOT exist - use the visible terminal-window workers. But in a CLIProxyAPI-backed session started by the `clx` (grok, 500k) or `clg` (gemini/agy, 1M) launcher, spawn the native subagents `grok` / `agy-gemini-3-8-flash` through the ordinary Agent tool instead - they run inside that session's own agentic runtime and need no terminal window. Codex is disabled. Trigger for "delegate to grok", "use the multi-agent harness", "parallelize with subagents", "first mate", or any coding task where Claude decides and a worker codes.
 ---
 
 # Multi-Agentic Harness (internal id: claude-manages-codex)
@@ -14,6 +14,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 **Spawn subagents of the harness you are already running in.**
 
 - A **Claude agent** (Claude Code, any Claude model) delegates through the normal Claude subagent path: the `Agent` tool with a built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`, ...). It must **NOT** shell out to `cursor-agent`, `grok`, or Codex to do its delegating.
+  - This rule is satisfied by the `clx` / `clg` native subagents too: those sessions ARE Claude Code, so spawning `grok` / `agy-gemini-3-8-flash` through the `Agent` tool is same-harness delegation, not a cross-harness shell-out. The forbidden thing is Bashing another CLI, not using a provider model inside this runtime.
 - A session inside the Cursor `cursor-agent` TUI spawns cursor-agent subagents, choosing the worker model per the cursor routing guidance.
 - A grok (Grok Build CLI) session spawns grok's own native subagents, default grok model.
 - **Only exception:** an explicit user instruction naming a different harness. "Delegate this" on its own means "spawn a subagent of your own kind," not "launch a different CLI."
@@ -21,9 +22,42 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 
 This rule overrides every "preferred backend" / "default worker model" statement elsewhere in this file. Those sections remain as mechanics reference for the paths they describe.
 
+## Which session am I in? (2026-09-02 - read this BEFORE the spawn path below)
+
+The correct delegation path depends on which launcher started this session. Check
+`CLAUDE_CONFIG_DIR` (or `ANTHROPIC_BASE_URL`):
+
+| Session | Started by | Native proxy subagents | Everyday delegation |
+| --- | --- | --- | --- |
+| **Plain Claude** (`~/.claude`, direct to api.anthropic.com) | `claude` | do NOT exist - an `Agent` call naming them fails | built-in `subagent_type`; visible terminal-window workers on explicit request |
+| **clx** (`~/.claude-clx`, `ANTHROPIC_BASE_URL=127.0.0.1:8317`) | `clx` | **`grok`** | spawn `grok` natively via the `Agent` tool |
+| **clg** (`~/.claude-clg`, same gateway) | `clg` | **`agy-gemini-3-8-flash`** | spawn `agy-gemini-3-8-flash` natively via the `Agent` tool |
+
+**In clx/clg, prefer the native subagent over a terminal-window worker.** The
+whole point of those profiles is that the provider model runs inside Claude
+Code's own agentic runtime: the `Agent` tool, permissions, diffs and steering all
+work, with no detached console to babysit. Verified 2026-09-02: a subagent
+spawned in a `clx` session reported `grok-4.6 (high)` and ran to completion.
+
+**In a plain Claude session nothing changes** - the visible terminal-window
+workers (`start_visible_*`) remain the harness proper, and the native
+proxy-backed types genuinely are unavailable there because the gateway env vars
+are not set. Do not try to spawn `grok` from a plain session.
+
+Two constraints worth knowing before you route work:
+
+- **clx is 500k, clg is 1M.** They are separate profiles because
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` are
+  process-wide and `modelSettings` accepts only `effortLevel` - there is no
+  per-model window key. Send long-context work to clg.
+- **An Antigravity `429 RESOURCE_EXHAUSTED` under `claude -p` is not a quota
+  problem** - it is an upstream `cc_entrypoint=sdk-cli` fingerprint filter
+  (CLIProxyAPI #5037). Interactive sessions work. Check with a direct
+  `POST /v1/messages` to the gateway before reporting the account as capped.
+
 ## Mandatory Spawn Path (2026-08-15 - hard rule, overrides older sections)
 
-You are reading this inside a **Claude** session, so Subagent Locality puts native Claude `Agent`-tool subagents first. The visible terminal-window workers are the multi-agentic harness proper and are reached only on an explicit request. Do not call Codex tools. Do not try to spawn a native `grok` or `agy-gemini-*` subagent: **those subagent types no longer exist.** They were served by a local multi-provider gateway that has been removed along with its launcher wrappers and per-world config dirs, and their agent definition files are deleted. An `Agent` call naming them will fail.
+You are reading this inside a **Claude** session, so Subagent Locality puts native Claude `Agent`-tool subagents first. The visible terminal-window workers are the multi-agentic harness proper and are reached only on an explicit request. Do not call Codex tools. In a **plain** Claude session, do not try to spawn a native `grok` or `agy-gemini-*` subagent: those types are unavailable there and an `Agent` call naming them will fail. In a **clx / clg** session they DO exist and are the preferred path - see the section above.
 
 | Priority | When | How to spawn | How to steer |
 | --- | --- | --- | --- |
@@ -33,7 +67,8 @@ You are reading this inside a **Claude** session, so Subagent Locality puts nati
 | **2c (on explicit request)** | Same, but grok and cursor-agent are capped/exhausted or the owner asks for agy/Gemini | `start_visible_agy_worker` / `start_visible_haiku_composed_agy_worker` | `steer_visible_agy_run` |
 | **3 (secondary)** | Long-running run-dir protocol or explicit headless multi-turn with no window | `start_claude_worker(...)` then arm `watch_command` | `steer_claude_run` |
 | **NEVER** | Codex path | `start_visible_codex_*`, `codex`, `codex-reply`, interactive Codex TUI | - disabled |
-| **NEVER** | Native `grok` / `agy-gemini-3-1-pro` / `agy-gemini-3-7-flash` subagent types | deleted, an `Agent` call naming them fails | - |
+| **NEVER in a plain session** | Native `grok` / `agy-gemini-*` subagent types | unavailable, an `Agent` call naming them fails | - |
+| **1 (DEFAULT) in clx / clg** | Every ordinary delegation inside a gateway-backed session | `Agent` tool with `subagent_type: "grok"` (clx) or `"agy-gemini-3-8-flash"` (clg) | `SendMessage` / follow-up Agent |
 
 The skill activating does **not** by itself count as the user asking for the harness: its trigger list is broad ("any coding task where Claude decides and a worker codes"), so priority 1 governs unless the user names the harness, asks for visible windows, or asks for grok agents / grok workers (including to edit).
 
@@ -42,8 +77,9 @@ The skill activating does **not** by itself count as the user asking for the har
 - Substituting Claude `Agent` subagents (or leaving grok on `sandbox=read-only`) after the owner asked for grok agents to edit/implement. That request is permission to spawn writable grok workers.
 - Reaching for `start_visible_*` as the everyday default because an older section below still calls it one. It is now an explicit-request path.
 - Calling `start_visible_haiku_composed_codex_worker` / `start_visible_first_mate_codex_pool` / `start_visible_codex_worker` because an older section still names them. **Codex is disabled.**
-- Spawning `Agent` with `subagent_type: "grok"`, `"agy-gemini-3-1-pro"`, or `"agy-gemini-3-7-flash"` because an older paragraph names them. **Those types are deleted.** Use a built-in `subagent_type` instead, and `start_visible_grok_worker` for explicitly-requested grok work.
-- Passing `model="grok-4.6"` (or any other non-Anthropic model id) to `start_claude_worker`. That worked only through the removed gateway; the tool now reaches `api.anthropic.com` only.
+- Spawning `Agent` with `subagent_type: "grok"` or `"agy-gemini-*"` **from a plain Claude session**. Those types resolve only under `clx` / `clg`. From a plain session use a built-in `subagent_type`, and `start_visible_grok_worker` for explicitly-requested grok work.
+- The mirror mistake: reaching for `start_visible_grok_worker` **inside a clx session** when the native `grok` subagent is right there. Prefer native there; the terminal-window worker is for plain sessions and explicit visible-window requests.
+- Passing `model="grok-4.6"` (or any other non-Anthropic model id) to `start_claude_worker`. That tool reaches `api.anthropic.com` only. Provider models are reached by the `clx` / `clg` launchers and their native subagents instead, not by this tool.
 - Ending a turn on a visible run without arming its `watch_command` and, for any run that may last more than a few minutes, its `supervise_command`.
 - Treating Bash `which cursor-agent` / `command -v cursor-agent` as "not installed" on Windows. Git Bash does not resolve `cursor-agent.cmd`. The CLI lives at `%LOCALAPPDATA%\cursor-agent`. Call `check_worker_backends` and read `cursor_agent`. Do not tell the owner it is missing from a PATH check.
 - Conflating cursor-agent with grok. `start_visible_grok_worker` uses `~/.grok/bin/grok.exe` and does not need cursor-agent. A cursor-agent miss (even a real one) is not a reason to skip grok.
